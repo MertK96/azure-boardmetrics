@@ -164,6 +164,111 @@ try
 
 
 
+
+
+// -------------------- Atanacak Maddeler (Assignments) --------------------
+app.MapGet("/api/assignments/items", async (AzdoClient az, int? top, CancellationToken ct) =>
+{
+    static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
+
+    var take = Math.Clamp(top ?? 400, 1, 2000);
+    var proj = EscapeWiql(az.Options.Project ?? "");
+
+    // Only:
+    // - Bug / Product Backlog Item with State=Approved
+    // - User Story with State=New
+    var wiql = $@"
+SELECT [System.Id]
+FROM WorkItems
+WHERE
+    [System.TeamProject] = '{proj}'
+    AND [System.State] <> 'Removed'
+    AND (
+        ([System.WorkItemType] IN ('Bug','Product Backlog Item') AND [System.State] = 'Approved')
+        OR
+        ([System.WorkItemType] = 'User Story' AND [System.State] = 'New')
+    )
+ORDER BY [System.ChangedDate] DESC";
+
+    var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);
+    ids = ids.Take(take).ToList();
+
+    var fetched = new List<AzdoWorkItem>();
+    foreach (var chunk in ids.Chunk(200))
+    {
+        var batch = await az.GetWorkItemsBatchAsync(chunk, ct);
+        fetched.AddRange(batch);
+    }
+
+    // Preserve WIQL order
+    var byId = fetched.ToDictionary(x => x.Id, x => x);
+    var list = new List<AssignableItemDto>();
+
+    for (var i = 0; i < ids.Count; i++)
+    {
+        var id = ids[i];
+        if (!byId.TryGetValue(id, out var wi)) continue;
+
+        var type = wi.GetString("System.WorkItemType") ?? "";
+        var state = wi.GetString("System.State") ?? "";
+
+        // Priority (for columns) - usually 1..4
+        int? priority = null;
+        var priVal = wi.GetDouble("Microsoft.VSTS.Common.Priority");
+        if (priVal is not null)
+        {
+            var p = (int)Math.Round(priVal.Value);
+            priority = p;
+        }
+
+        // Relevance: prefer StackRank/BacklogPriority, fallback to Priority
+        double? relevance = null;
+        foreach (var rf in new[] { "Microsoft.VSTS.Common.StackRank", "Microsoft.VSTS.Common.BacklogPriority" })
+        {
+            relevance = wi.GetDouble(rf);
+            if (relevance is not null) break;
+        }
+        relevance ??= priVal;
+
+        // Tag list
+        var tagsRaw = wi.GetString("System.Tags") ?? "";
+        var tags = tagsRaw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        // Filter: Bug/PBI must have priority 1..4 to be placed into a column
+        if (type.Equals("Bug", StringComparison.OrdinalIgnoreCase)
+            || type.Equals("Product Backlog Item", StringComparison.OrdinalIgnoreCase))
+        {
+            if (priority is null || priority < 1 || priority > 4) continue;
+            if (!state.Equals("Approved", StringComparison.OrdinalIgnoreCase)) continue;
+        }
+
+        if (type.Equals("User Story", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!state.Equals("New", StringComparison.OrdinalIgnoreCase)) continue;
+        }
+
+        var assigned = wi.GetIdentity("System.AssignedTo");
+
+        list.Add(new AssignableItemDto
+        {
+            OrderIndex = i,
+            Id = wi.Id,
+            Title = wi.GetString("System.Title"),
+            WorkItemType = type,
+            State = state,
+            Priority = priority,
+            Relevance = relevance,
+            AssignedToDisplayName = assigned?.DisplayName,
+            AssignedToUniqueName = assigned?.UniqueName,
+            CreatedDate = wi.GetDate("System.CreatedDate") ?? DateTimeOffset.MinValue,
+            ChangedDate = wi.GetDate("System.ChangedDate") ?? DateTimeOffset.MinValue,
+            Tags = tags
+        });
+    }
+
+    return Results.Ok(list);
+});
+
 app.MapGet("/api/workitems", async (AppDbContext db, string? assignee, string? flagged, int? top) =>
 {
     // SADECE In Progress
@@ -446,6 +551,30 @@ public record WorkItemDto
     public string? PoolReason { get; init; }
     public DateTimeOffset? LastFeedbackAt { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
+}
+
+
+
+public sealed class AssignableItemDto
+{
+    // Preserves the WIQL order (used for "default" sorting)
+    public int OrderIndex { get; set; }
+
+    public int Id { get; set; }
+    public string? Title { get; set; }
+    public string? WorkItemType { get; set; }
+    public string? State { get; set; }
+
+    public int? Priority { get; set; }
+    public double? Relevance { get; set; }
+
+    public string? AssignedToDisplayName { get; set; }
+    public string? AssignedToUniqueName { get; set; }
+
+    public DateTimeOffset CreatedDate { get; set; }
+    public DateTimeOffset ChangedDate { get; set; }
+
+    public string[] Tags { get; set; } = Array.Empty<string>();
 }
 
 public static class DtoMapper

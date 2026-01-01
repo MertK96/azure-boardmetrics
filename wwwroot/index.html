@@ -16,6 +16,7 @@
     <section class="mainTabs">
       <button id="viewTab_board" class="tabBtn active" type="button">Board</button>
       <button id="viewTab_review" class="tabBtn" type="button">Code Review Ataması</button>
+      <button id="viewTab_assign" class="tabBtn" type="button">Atanacak Maddeler</button>
     </section>
 
     <!-- -------------------- BOARD VIEW -------------------- -->
@@ -107,6 +108,114 @@
       </section>
     </div>
   
+
+    
+
+    <!-- -------------------- ATANACAK MADDELER VIEW -------------------- -->
+    <div id="view_assign" class="hidden">
+      <section class="filters assignFilters">
+        <div class="filterRow">
+          <div class="filterLeft">
+            <label>
+              Assigned To:
+              <select id="assign_assignee"></select>
+            </label>
+
+            <label>
+              Sort By:
+              <select id="assign_sortBy">
+                <option value="id">Id</option>
+                <option value="relevance">Relevance</option>
+                <option value="created">Created Date</option>
+                <option value="changed" selected>Changed Date</option>
+              </select>
+            </label>
+
+            <label>
+              Order:
+              <select id="assign_sortOrder">
+                <option value="asc">Ascending</option>
+                <option value="desc" selected>Descending</option>
+              </select>
+            </label>
+
+            <button id="assign_refresh" type="button">Yenile</button>
+            <span id="assign_status"></span>
+          </div>
+
+          <div class="filterRight">
+            <label class="tagOp">
+              Tags:
+              <select id="assign_tagMode">
+                <option value="or" selected>OR</option>
+                <option value="and">AND</option>
+              </select>
+            </label>
+
+            <div id="assign_tags" class="tagsBox"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="assignSection">
+        <div class="sectionTitle">Stories (State: New)</div>
+        <div id="assign_stories" class="cardsGrid"></div>
+      </section>
+
+      <section class="assignSection">
+        <div class="sectionTitle">Approved Bugs &amp; Product Backlog Items</div>
+        <div class="kanban" id="assign_board">
+          <div class="kanCol" data-priority="1">
+            <div class="kanHead">
+              <div class="kanTitle">Priority 1</div>
+              <div class="kanActions">
+                <button class="kanSortBtn" data-sort="default" type="button" title="Default">Default</button>
+                <button class="kanSortBtn" data-sort="oldest" type="button" title="Önce açılanlar">↑</button>
+                <button class="kanSortBtn" data-sort="newest" type="button" title="Sonra açılanlar">↓</button>
+              </div>
+            </div>
+            <div class="kanBody" id="assign_col_p1"></div>
+          </div>
+
+          <div class="kanCol" data-priority="2">
+            <div class="kanHead">
+              <div class="kanTitle">Priority 2</div>
+              <div class="kanActions">
+                <button class="kanSortBtn" data-sort="default" type="button" title="Default">Default</button>
+                <button class="kanSortBtn" data-sort="oldest" type="button" title="Önce açılanlar">↑</button>
+                <button class="kanSortBtn" data-sort="newest" type="button" title="Sonra açılanlar">↓</button>
+              </div>
+            </div>
+            <div class="kanBody" id="assign_col_p2"></div>
+          </div>
+
+          <div class="kanCol" data-priority="3">
+            <div class="kanHead">
+              <div class="kanTitle">Priority 3</div>
+              <div class="kanActions">
+                <button class="kanSortBtn" data-sort="default" type="button" title="Default">Default</button>
+                <button class="kanSortBtn" data-sort="oldest" type="button" title="Önce açılanlar">↑</button>
+                <button class="kanSortBtn" data-sort="newest" type="button" title="Sonra açılanlar">↓</button>
+              </div>
+            </div>
+            <div class="kanBody" id="assign_col_p3"></div>
+          </div>
+
+          <div class="kanCol" data-priority="4">
+            <div class="kanHead">
+              <div class="kanTitle">Priority 4</div>
+              <div class="kanActions">
+                <button class="kanSortBtn" data-sort="default" type="button" title="Default">Default</button>
+                <button class="kanSortBtn" data-sort="oldest" type="button" title="Önce açılanlar">↑</button>
+                <button class="kanSortBtn" data-sort="newest" type="button" title="Sonra açılanlar">↓</button>
+              </div>
+            </div>
+            <div class="kanBody" id="assign_col_p4"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
 
     <!-- -------------------- DETAIL (GLOBAL) -------------------- -->
     <section id="detail" class="detail hidden">

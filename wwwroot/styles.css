@@ -96,3 +96,51 @@ td.cellForecastOver{background:#2a2116}
 
 
 .reviewOwnerSelect{min-width:260px}
+
+
+/* Atanacak Maddeler */
+.assignFilters .filterRow{display:flex;gap:12px;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;width:100%}
+.assignFilters .filterLeft{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.assignFilters .filterRight{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;max-width:720px}
+.assignFilters #assign_status{font-size:12px;color:#97a6b3}
+.assignFilters select{min-width:180px}
+.assignFilters #assign_assignee{min-width:260px}
+.assignFilters .tagOp select{min-width:110px}
+.tagsBox{display:flex;gap:10px;flex-wrap:wrap;max-width:720px;max-height:140px;overflow:auto;padding:10px 12px;border:1px solid #223044;border-radius:14px;background:#0f1726}
+.tagItem{display:flex;flex-direction:row;gap:8px;align-items:center;font-size:12px;color:#c9d1d9;white-space:nowrap}
+.tagItem input{min-width:auto;width:16px;height:16px;padding:0;border-radius:4px}
+
+.assignSection{margin-top:12px}
+.sectionTitle{font-weight:700;margin:12px 0 10px 0;color:#e6edf3}
+.cardsGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+
+.kanban{display:grid;grid-template-columns:repeat(4,minmax(240px,1fr));gap:12px}
+@media (max-width:1100px){
+  .kanban{grid-template-columns:repeat(2,minmax(240px,1fr))}
+}
+@media (max-width:680px){
+  .kanban{grid-template-columns:1fr}
+}
+
+.kanCol{border:1px solid #223044;border-radius:14px;background:#0b1220;display:flex;flex-direction:column;min-height:240px}
+.kanHead{display:flex;justify-content:space-between;align-items:center;padding:10px 10px;border-bottom:1px solid #223044;gap:10px}
+.kanTitle{font-weight:700;font-size:13px}
+.kanActions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.kanSortBtn{background:#0f1726;color:#97a6b3;border:1px solid #223044;border-radius:10px;padding:6px 8px;font-size:12px;cursor:pointer}
+.kanSortBtn:hover{filter:brightness(1.05)}
+.kanSortBtn.active{background:#1f6feb;color:#fff;border-color:#1f6feb}
+.kanBody{padding:10px;display:flex;flex-direction:column;gap:10px;overflow:auto;max-height:72vh}
+
+.aCard{border:1px solid #223044;border-radius:14px;background:#0f1726;padding:10px;display:flex;flex-direction:column;gap:8px}
+.aTop{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.aId{font-weight:700}
+.aType{font-size:12px;color:#97a6b3;border:1px solid #223044;border-radius:999px;padding:3px 8px;background:#0b1220}
+.aTitle{font-size:13px;color:#e6edf3;line-height:1.35}
+.aMeta{display:flex;gap:8px;flex-wrap:wrap;font-size:12px;color:#97a6b3}
+.aState{border:1px solid #223044;border-radius:999px;padding:3px 8px;background:#0b1220}
+.aAssignee{border:1px solid #223044;border-radius:999px;padding:3px 8px;background:#0b1220}
+.aAssignee.muted{opacity:.75}
+.aDates{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:#97a6b3;opacity:.95}
+.aTags{display:flex;gap:6px;flex-wrap:wrap}
+.tagChip{font-size:11px;border:1px solid #223044;border-radius:999px;padding:3px 8px;color:#c9d1d9;background:#0b1220}
+

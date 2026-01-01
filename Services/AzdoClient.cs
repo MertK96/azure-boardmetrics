@@ -164,6 +164,48 @@ ORDER BY [System.ChangedDate] DESC";
         return ids;
     }
 
+
+    /// <summary>
+    /// Runs a custom WIQL query and returns work item IDs.
+    /// The query should SELECT [System.Id] FROM WorkItems ... and may include ORDER BY.
+    /// </summary>
+    public async Task<List<int>> QueryWorkItemIdsByWiqlAsync(string wiql, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(wiql))
+            return new List<int>();
+
+        var path = $"{_opt.Project}/_apis/wit/wiql?api-version=7.1";
+        var payload = JsonSerializer.Serialize(new { query = wiql });
+
+        using var res = await _http.PostAsync(
+            path,
+            new StringContent(payload, Encoding.UTF8, "application/json"),
+            ct);
+
+        if (!res.IsSuccessStatusCode)
+        {
+            var body = await res.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException(
+                $"WIQL(custom) failed. Status={(int)res.StatusCode} {res.ReasonPhrase}\n\nWIQL:\n{wiql}\n\nBody:\n{body}");
+        }
+
+        using var s = await res.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(s, cancellationToken: ct);
+
+        var ids = new List<int>();
+        if (doc.RootElement.TryGetProperty("workItems", out var workItems) && workItems.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var el in workItems.EnumerateArray())
+            {
+                if (el.TryGetProperty("id", out var idEl) && idEl.TryGetInt32(out var id))
+                    ids.Add(id);
+            }
+        }
+
+        return ids;
+    }
+
+
     public async Task AddCommentAsync(int workItemId, string htmlText, CancellationToken ct)
     {
         // Official Work Item Comments API
