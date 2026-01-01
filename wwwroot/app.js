@@ -5,6 +5,7 @@ let currentDetailDescHtml = '';
 let azdoCfg = null;
 
 let activeView = 'board'; // 'board' | 'review' | 'assign' | 'perf'
+let assignAutoTimer = null;
 
 let assignItems = [];
 let assignLoaded = false;
@@ -73,6 +74,18 @@ function setView(view){
         if(!assignLoaded) loadAssignableItems();
         else renderAssignable();
       });
+
+    // auto-refresh every 60s while on this tab
+    if(assignAutoTimer) clearInterval(assignAutoTimer);
+    assignAutoTimer = setInterval(() => {
+      if(activeView === 'assign') loadAssignableItems();
+    }, 60000);
+  }
+
+  // leaving assign => stop timer
+  if(view !== 'assign' && assignAutoTimer){
+    clearInterval(assignAutoTimer);
+    assignAutoTimer = null;
   }
 
   if(view === 'perf'){
@@ -1444,8 +1457,16 @@ if(reviewRefreshBtn) reviewRefreshBtn.addEventListener('click', loadReviewItems)
 const assignRefreshBtn = $('assign_refresh');
 if(assignRefreshBtn) assignRefreshBtn.addEventListener('click', loadAssignableItems);
 
-const assignNewBtn = $('assign_new');
-if(assignNewBtn) assignNewBtn.addEventListener('click', openCreateWorkItemModal);
+// Inline new item (Azure-like)
+const assignNewAddBtn = $('assign_new_add');
+const assignNewTitle = $('assign_new_title');
+if(assignNewAddBtn) assignNewAddBtn.addEventListener('click', createNewAssignItem);
+if(assignNewTitle) assignNewTitle.addEventListener('keydown', (e) => {
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    createNewAssignItem();
+  }
+});
 
 const assignAssigneeSel = $('assign_assignee');
 if(assignAssigneeSel) assignAssigneeSel.addEventListener('change', renderAssignable);
@@ -2485,6 +2506,46 @@ function openEditDescriptionModal(item){
     item.descriptionHtml = newHtml;
     renderAssignable();
   });
+}
+
+async function createNewAssignItem(){
+  const typeSel = $('assign_new_type');
+  const priSel = $('assign_new_priority');
+  const titleInp = $('assign_new_title');
+  if(!typeSel || !priSel || !titleInp) return;
+
+  const workItemType = String(typeSel.value || 'Product Backlog Item');
+  const priority = Number(priSel.value || '4');
+  const title = String(titleInp.value || '').trim();
+  if(!title){
+    titleInp.focus();
+    return;
+  }
+
+  const status = $('assign_status');
+  if(status) status.textContent = 'Oluşturuluyor...';
+
+  try{
+    const res = await fetch('/api/workitems', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workItemType, title, description: '', priority })
+    });
+    if(!res.ok){
+      const t = await res.text();
+      throw new Error(t || ('HTTP ' + res.status));
+    }
+
+    const created = await res.json();
+    // optimistic insert at top of its column (new items should appear immediately)
+    titleInp.value = '';
+    if(status) status.textContent = `Oluşturuldu: #${created.id}`;
+
+    // reload to ensure all fields/state are in sync
+    await loadAssignableItems();
+  }catch(err){
+    if(status) status.textContent = 'Oluşturma hatası: ' + (err?.message || err);
+  }
 }
 
 function openCreateWorkItemModal(){

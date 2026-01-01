@@ -183,7 +183,7 @@ app.MapGet("/api/assignments/items", async (AzdoClient az, int? top, Cancellatio
         : $"    [System.TeamProject] = '{proj}'\n    AND ";
 
     // Only:
-    // - Bug / Product Backlog Item with State=Approved (or TR equivalents)
+    // - Bug / Product Backlog Item with State=Approved or In Progress (or TR equivalents)
     // - User Story with State=New (or TR equivalents)
     var wiql = $@"
 SELECT [System.Id]
@@ -191,7 +191,11 @@ FROM WorkItems
 WHERE
 {projectClause}    [System.State] <> 'Removed'
     AND (
-        ([System.WorkItemType] IN ('Bug','Product Backlog Item') AND [System.State] IN ('Approved','Onaylandı','Onaylandi'))
+        ([System.WorkItemType] IN ('Bug','Product Backlog Item') AND [System.State] IN (
+            'Approved','Onaylandı','Onaylandi',
+            'New','Yeni',
+            'In Progress','Active','Doing','Started','Devam Ediyor','Yapılıyor','Yapiliyor'
+        ))
         OR
         ([System.WorkItemType] = 'User Story' AND [System.State] IN ('New','Yeni'))
     )
@@ -255,10 +259,19 @@ ORDER BY [System.ChangedDate] DESC";
         var tags = tagsRaw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         // Filter: Bug/PBI must land into a column (1..4)
-        static bool IsApprovedState(string s)
+        static bool IsEligibleBugPbiState(string s)
             => s.Equals("Approved", StringComparison.OrdinalIgnoreCase)
                || s.Equals("Onaylandı", StringComparison.OrdinalIgnoreCase)
-               || s.Equals("Onaylandi", StringComparison.OrdinalIgnoreCase);
+               || s.Equals("Onaylandi", StringComparison.OrdinalIgnoreCase)
+               || s.Equals("New", StringComparison.OrdinalIgnoreCase)
+               || s.Equals("Yeni", StringComparison.OrdinalIgnoreCase)
+               || s.Equals("In Progress", StringComparison.OrdinalIgnoreCase)
+               || s.Equals("Active", StringComparison.OrdinalIgnoreCase)
+               || s.Equals("Doing", StringComparison.OrdinalIgnoreCase)
+               || s.Equals("Started", StringComparison.OrdinalIgnoreCase)
+               || s.Equals("Devam Ediyor", StringComparison.OrdinalIgnoreCase)
+               || s.Equals("Yapılıyor", StringComparison.OrdinalIgnoreCase)
+               || s.Equals("Yapiliyor", StringComparison.OrdinalIgnoreCase);
 
         static bool IsNewState(string s)
             => s.Equals("New", StringComparison.OrdinalIgnoreCase)
@@ -268,7 +281,7 @@ ORDER BY [System.ChangedDate] DESC";
             || type.Equals("Product Backlog Item", StringComparison.OrdinalIgnoreCase))
         {
             if (priority is null || priority < 1 || priority > 4) continue;
-            if (!IsApprovedState(state)) continue;
+            if (!IsEligibleBugPbiState(state)) continue;
         }
 
         if (type.Equals("User Story", StringComparison.OrdinalIgnoreCase))

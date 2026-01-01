@@ -115,6 +115,14 @@ td.cellForecastOver{background:#2a2116}
 .assignFilters #assign_assignee{min-width:260px}
 .assignFilters .tagOp select{min-width:110px}
 
+/* Inline new item bar (Azure-like) */
+.newItemBar{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid rgba(255,255,255,.12);border-radius:10px;background:rgba(255,255,255,.03)}
+.newItemPlus{font-weight:700;opacity:.85;margin-right:2px}
+.newItemType{min-width:120px}
+.newItemPriority{min-width:70px}
+.newItemTitle{width:260px;min-width:180px;max-width:420px}
+.newItemAdd{padding:6px 10px}
+
 /* Dropdown (Tags) */
 .dd{position:relative}
 .ddBtn{background:#0f1726;color:#c9d1d9;border:1px solid #223044;border-radius:12px;padding:8px 10px;font-size:13px;cursor:pointer;min-width:140px;text-align:left}
