@@ -1568,6 +1568,31 @@ function renderPerfChart(){
 }
 
 
+// main view tabs (Board / Review / Assign / Perf)
+function initMainTabs(){
+  const map = {
+    board: 'viewTab_board',
+    review: 'viewTab_review',
+    assign: 'viewTab_assign',
+    perf: 'viewTab_perf',
+  };
+
+  for(const [view, id] of Object.entries(map)){
+    const el = $(id);
+    if(!el) continue;
+    el.addEventListener('click', () => {
+      setView(view);
+      try { history.replaceState(null, '', '#' + view); } catch {}
+    });
+  }
+
+  const hash = (location.hash || '').replace('#','').trim();
+  if(hash && map[hash]) setView(hash);
+  else setView('board');
+}
+
+
+
 // tabs
 const tabNoteBtn = $('tab_note');
 const tabCommentBtn = $('tab_comment');
@@ -1577,5 +1602,5 @@ if(tabCommentBtn) tabCommentBtn.addEventListener('click', () => setActiveTab('co
 const sendCommentBtn = $('sendComment');
 if(sendCommentBtn) sendCommentBtn.addEventListener('click', sendComment);
 
-setView('board');
+initMainTabs();
 load();
