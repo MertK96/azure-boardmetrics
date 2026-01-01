@@ -1820,24 +1820,32 @@ function renderPerfMetrics(){
     }
   }
 
+  
   el.innerHTML = `
     <div class="metric">
       <div class="mLabel">Done (adet)</div>
       <div class="mVal">${totalCnt}</div>
+    </div>
     <div class="metric">
       <div class="mLabel">Toplam Effort</div>
       <div class="mVal">${n2(totalEff)}</div>
+    </div>
     <div class="metric">
       <div class="mLabel">Bug Effort</div>
       <div class="mVal">${n2(bugEff)} <span class="muted">(${bugCnt})</span></div>
+    </div>
     <div class="metric">
       <div class="mLabel">Backlog Effort</div>
       <div class="mVal">${n2(backlogEff)} <span class="muted">(${backlogCnt})</span></div>
+    </div>
     <div class="metric">
       <div class="mLabel">En yüksek gün</div>
       <div class="mVal">${n2(maxDayEff)}${maxDay ? ' • ' + maxDay : ''}</div>
+    </div>
   `;
+
 }
+
 
 
 function perfHideTip(){
@@ -2124,16 +2132,55 @@ function ensureModalStyles(){
   const st = document.createElement('style');
   st.id = 'modalStyles';
   st.textContent = `
-  .modalOverlay{ position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; z-index:9999; }
-  .modalBox{ width:min(760px, 92vw); max-height:86vh; overflow:auto; background:rgba(20,26,38,.98); border:1px solid rgba(255,255,255,.10); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,.45); padding:16px; }
-  .modalTitle{ font-weight:700; margin:0 0 10px 0; }
+
+  .modalOverlay{
+    position:fixed; inset:0;
+    background:rgba(0,0,0,.55);
+    display:flex; align-items:center; justify-content:center;
+    z-index:9999;
+  }
+  .modalBox{
+    width:min(980px, 94vw);
+    max-height:88vh;
+    overflow:auto;
+    background:#0b1220;
+    border:1px solid #223044;
+    border-radius:14px;
+    box-shadow:0 12px 40px rgba(0,0,0,.45);
+    padding:16px;
+  }
+  .modalTitle{ font-weight:700; margin:0 0 10px 0; color:#e6edf3; }
+  .modalBody{ margin-top:6px; }
   .modalRow{ display:flex; gap:10px; flex-wrap:wrap; margin:10px 0; }
-  .modalRow label{ display:flex; flex-direction:column; gap:6px; font-size:12px; color:rgba(255,255,255,.80); }
-  .modalRow input, .modalRow select, .modalRow textarea{ background:rgba(255,255,255,.06); color:#fff; border:1px solid rgba(255,255,255,.10); border-radius:10px; padding:9px 10px; outline:none; }
-  .modalRow textarea{ width:100%; min-height:180px; resize:vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  .modalRow label{
+    display:flex; flex-direction:column; gap:6px;
+    font-size:12px; color:rgba(255,255,255,.80);
+  }
+  .modalRow input, .modalRow select, .modalRow textarea{
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.10);
+    color:#e6edf3;
+    border-radius:10px;
+    padding:9px 10px;
+    outline:none;
+  }
+  .modalBody textarea, .modalRow textarea{
+    width:100%;
+    min-height:420px;
+    resize:vertical;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    line-height:1.45;
+  }
   .modalActions{ display:flex; gap:10px; justify-content:flex-end; margin-top:12px; }
-  .btnPrimary{ background:#2b74ff; border:0; padding:9px 12px; border-radius:10px; color:#fff; cursor:pointer; font-weight:600; }
-  .btnGhost{ background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10); padding:9px 12px; border-radius:10px; color:#fff; cursor:pointer; }
+  .btnPrimary{
+    background:#2b74ff; border:0; padding:9px 12px;
+    border-radius:10px; color:#fff; cursor:pointer; font-weight:600;
+  }
+  .btnGhost{
+    background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
+    padding:9px 12px; border-radius:10px; color:#fff; cursor:pointer;
+  }
+
   `;
   document.head.appendChild(st);
 }
@@ -2213,18 +2260,43 @@ async function createWorkItem(type, title, priority, descriptionText){
 
 function openEditDescriptionModalGeneric(workItemId, currentHtml, afterSave){
   const body = document.createElement('div');
+  body.className = 'modalBody';
 
   const ta = document.createElement('textarea');
+  // Not: Azure Description HTML olabilir; editor şimdilik plain-text.
+  // Görsel içeren açıklamalarda metin yoksa boş görünebilir (görseller korunur).
   ta.value = htmlToText(currentHtml || '');
   body.appendChild(ta);
 
+  // Önizleme (görselleri de göstermek için)
+  if(currentHtml && String(currentHtml).trim()){
+    const prevLabel = document.createElement('div');
+    prevLabel.style.marginTop = '10px';
+    prevLabel.style.fontSize = '12px';
+    prevLabel.style.color = 'rgba(255,255,255,.70)';
+    prevLabel.textContent = 'Önizleme';
+    body.appendChild(prevLabel);
+
+    const preview = document.createElement('div');
+    preview.className = 'desc';
+    preview.style.maxHeight = '260px';
+    preview.style.overflow = 'auto';
+    preview.style.border = '1px solid #223044';
+    preview.style.borderRadius = '12px';
+    preview.style.padding = '10px';
+    preview.style.marginTop = '6px';
+    preview.innerHTML = rewriteDescriptionHtml(String(currentHtml));
+    body.appendChild(preview);
+  }
+
   openModal(`#${workItemId} Açıklama`, body, async ()=>{
     const r = await patchDescription(workItemId, ta.value);
-    // Backend descriptionHtml döndürür (görseller korunabilir)
     const newHtml = (r && r.descriptionHtml != null) ? String(r.descriptionHtml) : textToHtml(ta.value);
     if(typeof afterSave === 'function') afterSave(newHtml);
   });
+
 }
+
 
 function openEditDescriptionModal(item){
   openEditDescriptionModalGeneric(item.id, item.descriptionHtml || '', (newHtml)=>{
