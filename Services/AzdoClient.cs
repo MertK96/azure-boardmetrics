@@ -326,11 +326,6 @@ ORDER BY [System.ChangedDate] DESC";
         return dedup;
     }
 
-}");
-        }
-    }
-
-    
 public Task<string?> GetReviewOwnerFieldReferenceNameAsync(CancellationToken ct)
     => GetReviewOwnerFieldRefAsync(ct);
 
