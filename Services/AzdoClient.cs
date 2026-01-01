@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Linq;
 
 namespace AzdoBoardMetrics.Services;
 
@@ -186,7 +187,7 @@ ORDER BY [System.ChangedDate] DESC";
         }
     }
 
-    public async Task AssignReviewOwnerAsync(int workItemId, string reviewerUniqueNameOrEmail, CancellationToken ct)
+    public async Task AssignReviewOwnerAsync(int workItemId, string reviewerUniqueName, string? reviewerDisplayName, CancellationToken ct)
     {
         var fieldRef = await GetReviewOwnerFieldRefAsync(ct);
         if (string.IsNullOrWhiteSpace(fieldRef))
@@ -194,7 +195,7 @@ ORDER BY [System.ChangedDate] DESC";
 
         var ops = new object[]
         {
-            new { op = "add", path = $"/fields/{fieldRef}", value = reviewerUniqueNameOrEmail }
+            new { op = "add", path = $"/fields/{fieldRef}", value = FormatIdentityValue(reviewerUniqueName, reviewerDisplayName) }
         };
 
         var path = $"{_opt.Project}/_apis/wit/workitems/{workItemId}?api-version=7.1";
@@ -207,7 +208,123 @@ ORDER BY [System.ChangedDate] DESC";
         if (!res.IsSuccessStatusCode)
         {
             var body = await res.Content.ReadAsStringAsync(ct);
-            throw new Exception($"AssignReviewOwner failed: {(int)res.StatusCode} {res.ReasonPhrase} :: {body}");
+            throw new Exception($"AssignReviewOwner failed: {(int)res.StatusCode} {res.ReasonPhrase} :: {body
+
+    private static string FormatIdentityValue(string uniqueName, string? displayName)
+    {
+        var u = (uniqueName ?? "").Trim();
+        var d = (displayName ?? "").Trim();
+
+        if (string.IsNullOrWhiteSpace(u)) return d;
+
+        // If caller already sends "Name <mail>" keep it
+        if (u.Contains('<') && u.Contains('>')) return u;
+
+        // Prefer "Name <mail>" formatting (works well for identity fields)
+        if (!string.IsNullOrWhiteSpace(d) && u.Contains('@'))
+            return $"{d} <{u}>";
+
+        return u;
+    }
+
+    private string GetOrganizationName()
+    {
+        try
+        {
+            var uri = new Uri(_opt.OrganizationUrl);
+            var seg = uri.AbsolutePath.Trim('/');
+
+            // dev.azure.com/{org}
+            if (!string.IsNullOrWhiteSpace(seg))
+                return seg;
+
+            // visualstudio.com legacy (not expected here)
+            return uri.Host.Split('.').FirstOrDefault() ?? "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    public async Task<List<AzdoUserDto>> GetAzdoUsersAsync(int top, CancellationToken ct)
+    {
+        var org = GetOrganizationName();
+        if (string.IsNullOrWhiteSpace(org))
+            throw new Exception("OrganizationUrl üzerinden org adı çözümlenemedi.");
+
+        // Graph API host
+        var baseUrl = $"https://vssps.dev.azure.com/{org}/_apis/graph/users?api-version=7.1-preview.1&$top={Math.Clamp(top, 1, 2000)}";
+
+        var results = new List<AzdoUserDto>();
+        string? continuationToken = null;
+
+        while (results.Count < top)
+        {
+            var url = baseUrl;
+            if (!string.IsNullOrWhiteSpace(continuationToken))
+                url += $"&continuationToken={Uri.EscapeDataString(continuationToken)}";
+
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            using var res = await _http.SendAsync(req, ct);
+
+            if (!res.IsSuccessStatusCode)
+            {
+                var body = await res.Content.ReadAsStringAsync(ct);
+                throw new Exception($"Graph users failed: {(int)res.StatusCode} {res.ReasonPhrase} :: {body}");
+            }
+
+            var json = await res.Content.ReadAsStringAsync(ct);
+            var doc = JsonDocument.Parse(json);
+
+            if (doc.RootElement.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var u in value.EnumerateArray())
+                {
+                    var displayName = u.TryGetProperty("displayName", out var dn) ? dn.GetString() : null;
+                    var principalName = u.TryGetProperty("principalName", out var pn) ? pn.GetString() : null;
+                    var mail = u.TryGetProperty("mailAddress", out var ma) ? ma.GetString() : null;
+
+                    var unique = (principalName ?? mail ?? "").Trim();
+                    var disp = (displayName ?? "").Trim();
+
+                    if (string.IsNullOrWhiteSpace(unique) && string.IsNullOrWhiteSpace(disp))
+                        continue;
+
+                    results.Add(new AzdoUserDto
+                    {
+                        DisplayName = disp,
+                        UniqueName = unique
+                    });
+
+                    if (results.Count >= top) break;
+                }
+            }
+
+            // continuation header can be x-ms-continuationtoken
+            if (res.Headers.TryGetValues("x-ms-continuationtoken", out var vals))
+            {
+                continuationToken = vals.FirstOrDefault();
+            }
+            else
+            {
+                continuationToken = null;
+            }
+
+            if (string.IsNullOrWhiteSpace(continuationToken))
+                break;
+        }
+
+        // de-dupe by uniqueName
+        var dedup = results
+            .GroupBy(x => (x.UniqueName ?? x.DisplayName ?? "").Trim().ToLowerInvariant())
+            .Select(g => g.First())
+            .ToList();
+
+        return dedup;
+    }
+
+}");
         }
     }
 

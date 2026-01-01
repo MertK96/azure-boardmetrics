@@ -9,7 +9,7 @@
 <body>
   <header>
     <div class="title">AZDO Board Metrics (MVP)</div>
-    <div class="sub">Sadece In Progress | Not (Pool) | Forecast ...me <span class="build">build: 2026-01-01 review-assign-v1</span></div>
+    <div class="sub">build: 2026-01-01 review-assign2 | Sadece In Progress | Not (Pool) | Forecast ...me <span class="build">build: 2026-01-01 review-assign-v1</span></div>
   </header>
 
   <main>
@@ -69,7 +69,46 @@
         </table>
       </section>
 
-      <section id="detail" class="detail hidden">
+      
+    </div>
+
+    <!-- -------------------- CODE REVIEW ASSIGNMENT VIEW -------------------- -->
+    <div id="view_review" class="hidden">
+      <section class="filters">
+<label>
+          Assignee filtre (opsiyonel):
+          <input id="review_assignee" placeholder="a@company.com"/>
+        </label>
+
+        <button id="review_refresh" type="button">Yenile</button>
+        <span id="review_status"></span>
+      </section>
+
+      <section class="hint">
+        Bu liste <b>Ready for Code Rewiew</b> kolonundaki maddelerden gelir. Her satırdaki <b>Review Owner</b> dropdown’undan Azure DevOps kullanıcı seçip atama yapabilirsin.
+      </section>
+
+      <section class="tableWrap">
+        <table id="tbl_review">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Title</th>
+              <th>Assignee</th>
+              <th>Review Owner</th>
+              <th>State</th>
+              <th>Column</th>
+              <th>İşlem</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </div>
+  
+
+    <!-- -------------------- DETAIL (GLOBAL) -------------------- -->
+    <section id="detail" class="detail hidden">
         <div class="detailHeader">
           <div>
             <div id="d_title" class="dTitle"></div>
@@ -114,48 +153,9 @@
           </div>
         </div>
       </section>
-    </div>
 
-    <!-- -------------------- CODE REVIEW ASSIGNMENT VIEW -------------------- -->
-    <div id="view_review" class="hidden">
-      <section class="filters">
-        <label>
-          Reviewer seç:
-          <select id="review_reviewer"></select>
-        </label>
+</main>
 
-        <label>
-          Assignee filtre (opsiyonel):
-          <input id="review_assignee" placeholder="a@company.com"/>
-        </label>
-
-        <button id="review_refresh" type="button">Yenile</button>
-        <span id="review_status"></span>
-      </section>
-
-      <section class="hint">
-        Bu liste <b>Ready for Code Rewiew</b> kolonundaki maddelerden gelir. Seçtiğin reviewer, ilgili maddenin <b>Review Owner</b> alanına yazılır.
-      </section>
-
-      <section class="tableWrap">
-        <table id="tbl_review">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Title</th>
-              <th>Assignee</th>
-              <th>Review Owner</th>
-              <th>State</th>
-              <th>Column</th>
-              <th>İşlem</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </section>
-    </div>
-  </main>
-
-  <script src="/app.js?v=20260101-review"></script>
+  <script src="/app.js?v=20260101-reviewassign2"></script>
 </body>
 </html>

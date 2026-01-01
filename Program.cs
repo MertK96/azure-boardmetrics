@@ -55,6 +55,14 @@ app.MapGet("/api/assignees", (IOptions<AzdoOptions> opt) =>
     return Results.Ok(users);
 });
 
+app.MapGet("/api/azdo/users", async (AzdoClient az, int? top, CancellationToken ct) =>
+{
+    var take = Math.Clamp(top ?? 300, 1, 2000);
+    var users = await az.GetAzdoUsersAsync(take, ct);
+    return Results.Ok(users);
+});
+
+
 /* -------------------- Code Review Ataması -------------------- */
 
 // Ready for Code Rewiew kolonundaki maddeleri getir
@@ -123,18 +131,20 @@ app.MapGet("/api/code-review/items", async (AzdoClient az, string? assignee, int
 // Bir maddeye Review Owner ata (Azure DevOps field update)
 app.MapPost("/api/code-review/{id:int}/assign", async (AzdoClient az, AppDbContext db, int id, ReviewAssignCreate dto, CancellationToken ct) =>
 {
-    var reviewer = (dto.Reviewer ?? "").Trim();
-    if (string.IsNullOrWhiteSpace(reviewer))
-        return Results.BadRequest(new { message = "Reviewer boş olamaz." });
+    var reviewerUniqueName = (dto.ReviewerUniqueName ?? "").Trim();
+    var reviewerDisplayName = (dto.ReviewerDisplayName ?? "").Trim();
 
-    try
+    if (string.IsNullOrWhiteSpace(reviewerUniqueName))
+        return Results.BadRequest(new { message = "Review Owner boş olamaz." });
+
+try
     {
-        await az.AssignReviewOwnerAsync(id, reviewer, ct);
+        await az.AssignReviewOwnerAsync(id, reviewerUniqueName, reviewerDisplayName, ct);
 
         db.ReviewAssignments.Add(new ReviewAssignmentEntity
         {
             WorkItemId = id,
-            Reviewer = reviewer,
+            Reviewer = reviewerUniqueName,
             AssignedBy = "", // UI'da kullanıcı bilgisi yok
             Note = (dto.Note ?? "").Trim(),
             CreatedAt = DateTimeOffset.UtcNow
@@ -375,7 +385,7 @@ public record CommentCreate(string? Text);
 public record ResolveDto(bool IsResolved);
 
 
-public record ReviewAssignCreate(string? Reviewer, string? Note);
+public record ReviewAssignCreate(string? ReviewerUniqueName, string? ReviewerDisplayName, string? Note);
 
 public sealed class CodeReviewItemDto
 {

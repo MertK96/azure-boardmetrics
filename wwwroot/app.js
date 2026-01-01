@@ -4,7 +4,8 @@ let currentId = null;
 let azdoCfg = null;
 
 let activeView = 'board'; // 'board' | 'review'
-let reviewUsersLoaded = false;
+let azdoUsersLoaded = false;
+let azdoUsers = [];
 
 let activeTab = 'note'; // 'note' | 'comment'
 
@@ -34,37 +35,33 @@ function setView(view){
   if(viewReview) viewReview.classList.toggle('hidden', view !== 'review');
 
   if(view === 'review'){
-    ensureReviewUsers().then(loadReviewItems);
+    ensureAzdoUsers().then(loadReviewItems);
   }
 }
 
-async function ensureReviewUsers(){
-  if(reviewUsersLoaded) return;
-  const sel = $('review_reviewer');
-  if(!sel) return;
+async function ensureAzdoUsers(){
+  if(azdoUsersLoaded) return;
 
-  sel.innerHTML = '';
-  const optEmpty = document.createElement('option');
-  optEmpty.value = '';
-  optEmpty.textContent = '-- seç --';
-  sel.appendChild(optEmpty);
-
-  let users = [];
   try{
-    const res = await fetch('/api/assignees');
-    if(res.ok) users = await res.json();
+    const res = await fetch('/api/azdo/users?top=500');
+    if(res.ok) azdoUsers = await res.json();
   }catch(_){}
 
-  (users || []).forEach(u => {
-    const o = document.createElement('option');
-    o.value = u;
-    o.textContent = u;
-    sel.appendChild(o);
+  azdoUsers = (azdoUsers || [])
+    .filter(x => x && (x.uniqueName || x.displayName))
+    .map(x => ({
+      displayName: (x.displayName || '').trim(),
+      uniqueName: (x.uniqueName || '').trim()
+    }));
+
+  azdoUsers.sort((a,b) => {
+    const aa = (a.displayName || a.uniqueName || '');
+    const bb = (b.displayName || b.uniqueName || '');
+    return aa.localeCompare(bb, 'tr');
   });
 
-  reviewUsersLoaded = true;
+  azdoUsersLoaded = true;
 }
-
 async function ensureConfig(){
   if(azdoCfg) return azdoCfg;
   try{
@@ -424,25 +421,25 @@ async function sendComment(){
 function renderReviewRow(wi){
   const tr = document.createElement('tr');
 
-  // ID (link)
+  // ID (stay in app)
   const tdId = document.createElement('td');
   const aId = document.createElement('a');
-  aId.href = buildBoardUrl(wi.id);
-  aId.target = '_blank';
-  aId.rel = 'noreferrer';
+  aId.href = '#';
   aId.textContent = wi.id;
+  aId.addEventListener('click', async (e) => {
+    e.preventDefault();
+    await openDetail(wi.id);
+  });
   tdId.appendChild(aId);
   tr.appendChild(tdId);
 
-  // Title (open detail in same app)
+  // Title (stay in app)
   const tdTitle = document.createElement('td');
   const aTitle = document.createElement('a');
   aTitle.href = '#';
   aTitle.textContent = wi.title ?? '';
   aTitle.addEventListener('click', async (e) => {
     e.preventDefault();
-    // board view'daki detay paneli
-    setView('board');
     await openDetail(wi.id);
   });
   tdTitle.appendChild(aTitle);
@@ -452,8 +449,35 @@ function renderReviewRow(wi){
   tdAss.textContent = wi.assignedToDisplayName || wi.assignedToUniqueName || '';
   tr.appendChild(tdAss);
 
+  // Review Owner dropdown (Azure users)
   const tdOwner = document.createElement('td');
-  tdOwner.textContent = wi.reviewOwnerDisplayName || wi.reviewOwnerUniqueName || '';
+  const sel = document.createElement('select');
+  sel.className = 'reviewOwnerSelect';
+
+  const empty = document.createElement('option');
+  empty.value = '';
+  empty.textContent = '-- seç --';
+  sel.appendChild(empty);
+
+  (azdoUsers || []).forEach(u => {
+    const o = document.createElement('option');
+    o.value = u.uniqueName || '';
+    const label = (u.displayName && u.uniqueName)
+      ? `${u.displayName} <${u.uniqueName}>`
+      : (u.displayName || u.uniqueName || '');
+    o.textContent = label;
+    o.dataset.displayName = u.displayName || '';
+    sel.appendChild(o);
+  });
+
+  // preselect current
+  const cur = (wi.reviewOwnerUniqueName || '').trim().toLowerCase();
+  if(cur){
+    const opt = Array.from(sel.options).find(o => (o.value || '').trim().toLowerCase() === cur);
+    if(opt) sel.value = opt.value;
+  }
+
+  tdOwner.appendChild(sel);
   tr.appendChild(tdOwner);
 
   const tdState = document.createElement('td');
@@ -469,7 +493,12 @@ function renderReviewRow(wi){
   btn.type = 'button';
   btn.className = 'miniBtn';
   btn.textContent = 'Ata';
-  btn.addEventListener('click', () => assignReviewOwner(wi.id));
+  btn.addEventListener('click', () => {
+    const selected = sel.value || '';
+    const selectedOpt = sel.options[sel.selectedIndex];
+    const displayName = selectedOpt?.dataset?.displayName || '';
+    assignReviewOwner(wi.id, selected, displayName);
+  });
   tdAct.appendChild(btn);
   tr.appendChild(tdAct);
 
@@ -477,6 +506,8 @@ function renderReviewRow(wi){
 }
 
 async function loadReviewItems(){
+  await ensureAzdoUsers();
+
   const status = $('review_status');
   const tbody = $('tbl_review')?.querySelector('tbody');
   if(!tbody) return;
@@ -509,12 +540,14 @@ async function loadReviewItems(){
   if(status) status.textContent = `${(list || []).length} madde`;
 }
 
-async function assignReviewOwner(id){
-  const reviewer = ($('review_reviewer')?.value || '').trim();
+async function assignReviewOwner(id, reviewerUniqueName, reviewerDisplayName){
   const status = $('review_status');
 
-  if(!reviewer){
-    if(status) status.textContent = 'Reviewer seçmelisin.';
+  const uniqueName = (reviewerUniqueName || '').trim();
+  const displayName = (reviewerDisplayName || '').trim();
+
+  if(!uniqueName){
+    if(status) status.textContent = 'Review Owner seçmelisin.';
     return;
   }
 
@@ -524,7 +557,7 @@ async function assignReviewOwner(id){
     const res = await fetch(`/api/code-review/${id}/assign`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reviewer })
+      body: JSON.stringify({ reviewerUniqueName: uniqueName, reviewerDisplayName: displayName })
     });
 
     if(!res.ok){
@@ -533,13 +566,12 @@ async function assignReviewOwner(id){
       return;
     }
 
-    if(status) status.textContent = `#${id} -> ${reviewer} OK`;
+    if(status) status.textContent = `#${id} -> ${displayName || uniqueName} OK`;
     await loadReviewItems();
   }catch(ex){
     if(status) status.textContent = ex?.message || 'hata';
   }
 }
-
 
 
 $('refresh').addEventListener('click', load);
