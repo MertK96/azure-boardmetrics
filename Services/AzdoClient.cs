@@ -731,6 +731,24 @@ private async Task<List<AzdoWorkItem>> GetWorkItemsBatchInternalAsync(int[] idLi
         return await res.Content.ReadAsByteArrayAsync(ct);
     }
 
+
+
+    // Binary içerik (img, attachment) - content-type ile birlikte
+    public async Task<(byte[] Bytes, string ContentType)> GetBinaryAsync(string url, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Accept.Clear();
+        req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("*/*"));
+
+        using var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+        res.EnsureSuccessStatusCode();
+
+        var ctHeader = res.Content.Headers.ContentType?.ToString();
+        if (string.IsNullOrWhiteSpace(ctHeader)) ctHeader = "application/octet-stream";
+
+        var bytes = await res.Content.ReadAsByteArrayAsync(ct);
+        return (bytes, ctHeader);
+    }
     // Work item'a yorum ekle (Discussion/Comments)
     // Not: Bu, UI'da snifflenen Contribution/HierarchyQuery çağrısı yerine resmi Comments API'yi kullanır.
     // PAT için vso.work_write scope gerekir.

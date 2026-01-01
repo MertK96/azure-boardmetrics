@@ -338,6 +338,63 @@ static string NormalizeHtmlFromInput(string? input)
     return enc.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "<br/>");
 }
 
+
+static string ExtractImgTags(string? html)
+{
+    var s = html ?? string.Empty;
+    if (string.IsNullOrWhiteSpace(s)) return string.Empty;
+    var matches = Regex.Matches(s, "<img\b[^>]*>", RegexOptions.IgnoreCase);
+    if (matches.Count == 0) return string.Empty;
+    return string.Join(string.Empty, matches.Cast<Match>().Select(m => m.Value));
+}
+
+static bool IsBadProxyHost(Uri uri)
+{
+    // reject localhost / private ip
+    if (uri.IsLoopback) return true;
+    if (uri.HostNameType == UriHostNameType.IPv4 || uri.HostNameType == UriHostNameType.IPv6)
+    {
+        if (System.Net.IPAddress.TryParse(uri.Host, out var ip))
+        {
+            if (System.Net.IPAddress.IsLoopback(ip)) return true;
+            var bytes = ip.GetAddressBytes();
+            // RFC1918
+            if (bytes.Length == 4)
+            {
+                if (bytes[0] == 10) return true;
+                if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
+                if (bytes[0] == 192 && bytes[1] == 168) return true;
+                if (bytes[0] == 169 && bytes[1] == 254) return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool IsAllowedImageUrl(string? url, out Uri? uri, out string error)
+{
+    uri = null;
+    error = string.Empty;
+    if (string.IsNullOrWhiteSpace(url)) { error = "url boş"; return false; }
+    if (url.Length > 2000) { error = "url çok uzun"; return false; }
+
+    if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) { error = "url parse edilemedi"; return false; }
+    if (!string.Equals(u.Scheme, "https", StringComparison.OrdinalIgnoreCase) && !string.Equals(u.Scheme, "http", StringComparison.OrdinalIgnoreCase))
+    {
+        error = "sadece http/https";
+        return false;
+    }
+
+    if (IsBadProxyHost(u)) { error = "host izinli değil"; return false; }
+
+    var host = (u.Host ?? "").ToLowerInvariant();
+    var allowed = host == "dev.azure.com" || host.EndsWith(".dev.azure.com") || host.EndsWith(".visualstudio.com") || host == "vssps.dev.azure.com" || host.EndsWith(".vsassets.io");
+    if (!allowed) { error = "host allowlist dışında"; return false; }
+
+    uri = u;
+    return true;
+}
+
 app.MapMethods("/api/assignments/{id:int}/assignee", new[] { "PATCH", "POST" }, async (AzdoClient az, int id, UpdateAssigneeRequest req, CancellationToken ct) =>
 {
     try
@@ -355,9 +412,47 @@ app.MapMethods("/api/workitems/{id:int}/description", new[] { "PATCH", "POST" },
 {
     try
     {
-        var html = NormalizeHtmlFromInput(req.Description);
-        await az.UpdateWorkItemDescriptionAsync(id, html, ct);
-        return Results.Ok(new { ok = true, id });
+        var input = (req.Description ?? string.Empty);
+        var trimmed = input.Trim();
+
+        // Boş ise tamamen temizle (Azure null istemiyor; boş string OK)
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            await az.UpdateWorkItemDescriptionAsync(id, "", ct);
+            return Results.Ok(new { ok = true, id, descriptionHtml = "" });
+        }
+
+        var newHtml = NormalizeHtmlFromInput(trimmed);
+
+        // Mevcut açıklamadaki görselleri koru (kullanıcı sadece metni güncelliyorsa)
+        var existing = await az.GetWorkItemDescriptionHtmlAsync(id, null, ct);
+        var imgs = ExtractImgTags(existing);
+        if (!string.IsNullOrWhiteSpace(imgs) && !newHtml.Contains("<img", StringComparison.OrdinalIgnoreCase))
+        {
+            newHtml = newHtml + "<br/><br/>" + imgs;
+        }
+
+        await az.UpdateWorkItemDescriptionAsync(id, newHtml, ct);
+        return Results.Ok(new { ok = true, id, descriptionHtml = newHtml });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 500);
+    }
+});
+
+
+
+app.MapGet("/api/proxy/image", async (HttpContext http, AzdoClient az, string url, CancellationToken ct) =>
+{
+    try
+    {
+        if (!IsAllowedImageUrl(url, out var uri, out var err) || uri == null)
+            return Results.BadRequest(new { message = err });
+
+        var (bytes, contentType) = await az.GetBinaryAsync(uri.ToString(), ct);
+        http.Response.Headers.CacheControl = "private, max-age=300";
+        return Results.File(bytes, contentType ?? "application/octet-stream");
     }
     catch (Exception ex)
     {

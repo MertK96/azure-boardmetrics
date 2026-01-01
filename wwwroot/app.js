@@ -239,6 +239,44 @@ function htmlToText(html){
   return (tmp.textContent || tmp.innerText || '').trim();
 }
 
+// Description HTML'i göstermek için: img src'leri proxy'e çevir ve basit XSS temizliği yap
+function rewriteDescriptionHtml(html){
+  if(!html) return '';
+  try{
+    const doc = new DOMParser().parseFromString(String(html), 'text/html');
+
+    // remove scripts
+    doc.querySelectorAll('script').forEach(s => s.remove());
+
+    // remove inline event handlers
+    doc.body.querySelectorAll('*').forEach(el => {
+      [...el.attributes].forEach(a => {
+        const n = (a.name || '').toLowerCase();
+        if(n.startsWith('on')) el.removeAttribute(a.name);
+      });
+    });
+
+    // rewrite img src to backend proxy (PAT ile çekilsin)
+    doc.body.querySelectorAll('img').forEach(img => {
+      const src = img.getAttribute('src') || '';
+      if(!src) return;
+      if(/^https?:/i.test(src)) img.setAttribute('src', `/api/proxy/image?url=${encodeURIComponent(src)}`);
+      img.style.maxWidth = '100%';
+      img.style.height = 'auto';
+    });
+
+    // make links safe
+    doc.body.querySelectorAll('a').forEach(a => {
+      a.setAttribute('target','_blank');
+      a.setAttribute('rel','noreferrer');
+    });
+
+    return doc.body.innerHTML;
+  }catch{
+    return escapeHtml(String(html));
+  }
+}
+
 async function load(){
   await ensureConfig();
   $('status').textContent = 'yükleniyor...';
@@ -369,20 +407,35 @@ async function openDetail(id){
 
   if(descEl){
     currentDetailDescHtml = data.descriptionHtml || '';
-    const desc = htmlToText(currentDetailDescHtml);
-    descEl.textContent = desc ? desc : '(açıklama yok)';
 
-    // Make description editable from detail view (button + click on text)
+    const renderDesc = () => {
+      if(!currentDetailDescHtml){
+        descEl.textContent = '(açıklama yok)';
+        return;
+      }
+      descEl.innerHTML = rewriteDescriptionHtml(currentDetailDescHtml);
+    };
+
+    renderDesc();
+
+    // Make description editable from detail view (button + click on empty area)
     const openEdit = (e) => {
       if(e){ e.preventDefault(); e.stopPropagation(); }
-      openEditDescriptionModalGeneric(wi.id, currentDetailDescHtml, (newHtml)=>{
-        currentDetailDescHtml = newHtml || '';
-        const t = htmlToText(currentDetailDescHtml);
-        descEl.textContent = t ? t : '(açıklama yok)';
+      openEditDescriptionModalGeneric(wi.id, currentDetailDescHtml, (serverHtml)=>{
+        // serverHtml could include preserved images
+        currentDetailDescHtml = serverHtml || '';
+        renderDesc();
       });
     };
 
-    descEl.onclick = openEdit;
+    // Click inside description: if user clicked an image/link, don't open editor
+    descEl.addEventListener('click', (e)=>{
+      const t = e.target;
+      const tag = (t && t.tagName) ? t.tagName.toUpperCase() : '';
+      if(tag === 'A' || tag === 'IMG' || (t && t.closest && (t.closest('a') || t.closest('img')))) return;
+      openEdit(e);
+    });
+
     const btn = $('d_desc_edit');
     if(btn) btn.onclick = openEdit;
   }
@@ -841,11 +894,6 @@ function createAssignCard(item){
 
     ${renderCriticalHint(item)}
 
-    <div class="aDescRow">
-      <button type="button" class="aDescEdit" title="Açıklama düzenle">✎</button>
-      <div class="aDescText">${escapeHtml(truncateText(htmlToText(item.descriptionHtml||''), 180))}</div>
-    </div>
-
     <div class="aTags">${renderTagChips(tags)}</div>
   `;
 
@@ -859,14 +907,6 @@ function createAssignCard(item){
       openAssigneeSelect(picker, item);
     });
   }
-
-
-  // Inline description edit
-  const descBtn = div.querySelector('.aDescEdit');
-  const descText = div.querySelector('.aDescText');
-  const openDesc = (e) => { e.preventDefault(); e.stopPropagation(); openEditDescriptionModal(item); };
-  if(descBtn) descBtn.addEventListener('click', openDesc);
-  if(descText) descText.addEventListener('click', openDesc);
 
   // Title click -> existing detail screen works only for In Progress items; so keep it as link to ADO
   return div;
@@ -2155,6 +2195,7 @@ async function patchDescription(workItemId, descriptionText){
     const t = await res.text();
     throw new Error(t || `HTTP ${res.status}`);
   }
+  try{ return await res.json(); }catch{ return { ok:true }; }
 }
 
 async function createWorkItem(type, title, priority, descriptionText){
@@ -2178,8 +2219,9 @@ function openEditDescriptionModalGeneric(workItemId, currentHtml, afterSave){
   body.appendChild(ta);
 
   openModal(`#${workItemId} Açıklama`, body, async ()=>{
-    await patchDescription(workItemId, ta.value);
-    const newHtml = textToHtml(ta.value);
+    const r = await patchDescription(workItemId, ta.value);
+    // Backend descriptionHtml döndürür (görseller korunabilir)
+    const newHtml = (r && r.descriptionHtml != null) ? String(r.descriptionHtml) : textToHtml(ta.value);
     if(typeof afterSave === 'function') afterSave(newHtml);
   });
 }
