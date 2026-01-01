@@ -961,3 +961,46 @@ public static class DtoMapper
         UpdatedAt = x.UpdatedAt
     };
 }
+
+// -------------------- Performance DTOs --------------------
+public sealed class UserPerfSummaryDto
+{
+    public string User { get; set; } = ""; // UniqueName (email-like)
+    public string? DisplayName { get; set; }
+
+    public int Stories { get; set; }
+    public int Bugs { get; set; }
+    public int Todos { get; set; }
+    public int InProgress { get; set; }
+    public int Done { get; set; }
+}
+
+public sealed class PerfDoneItemDto
+{
+    public int Id { get; set; }
+    public string? Title { get; set; }
+    public string? WorkItemType { get; set; }
+    public string? State { get; set; }
+    public double? Effort { get; set; }
+    public DateTimeOffset? StartDate { get; set; }
+    public DateTimeOffset? DueDate { get; set; }
+    public DateTimeOffset? CompletedDate { get; set; }
+}
+
+public sealed class PerfCandleItemDto
+{
+    public int Id { get; set; }
+    public double Effort { get; set; }
+}
+
+public sealed class PerfCandleDto
+{
+    // yyyy-MM-dd
+    public string Date { get; set; } = "";
+    public double Open { get; set; }
+    public double High { get; set; }
+    public double Low { get; set; }
+    public double Close { get; set; }
+
+    public PerfCandleItemDto[] Items { get; set; } = Array.Empty<PerfCandleItemDto>();
+}
