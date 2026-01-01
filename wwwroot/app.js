@@ -822,17 +822,20 @@ function createAssignCard(item){
     ${renderCriticalHint(item)}
     <div class="aTags">${renderTagChips(tags)}</div>
 
-// Inline assignee edit
-const picker = div.querySelector('.aAssigneePicker');
-if(picker){
-  picker.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    openAssigneeSelect(picker, item);
-  });
-}
+
 
   `;
+
+  
+  // Inline assignee edit (bind after innerHTML)
+  const picker = div.querySelector('.aAssigneePicker');
+  if(picker){
+    picker.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openAssigneeSelect(picker, item);
+    });
+  }
 
   // Title click -> existing detail screen works only for In Progress items; so keep it as link to ADO
   return div;
