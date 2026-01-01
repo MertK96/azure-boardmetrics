@@ -311,9 +311,11 @@ public async Task UpdateWorkItemAssignedToAsync(int id, string? assigneeUniqueNa
     }
     else
     {
+        // Compiler can't infer assigneeUniqueName is non-null in this branch.
+        var v = assigneeUniqueName!.Trim();
         patch = new object[]
         {
-            new { op = "add", path = "/fields/System.AssignedTo", value = assigneeUniqueName.Trim() }
+            new { op = "add", path = "/fields/System.AssignedTo", value = v }
         };
     }
 
@@ -411,9 +413,8 @@ public async Task<AzdoWorkItem> CreateWorkItemAsync(string workItemType, string 
 
         using var doc = JsonDocument.Parse(body);
         var root = doc.RootElement;
-        var id = root.TryGetProperty("id", out var idEl) ? idEl.GetInt32() : 0;
-        // Return minimal AzdoWorkItem; caller can refetch if needed
-        return new AzdoWorkItem(id, root);
+        // Return AzdoWorkItem parsed from JSON response
+        return AzdoWorkItem.FromJson(root);
     }
 
     try

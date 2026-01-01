@@ -443,8 +443,8 @@ var untilStr = endExclusive.ToString("yyyy-MM-dd");
         catch { graphUsers = new List<AzdoUserDto>(); }
 
         var userDisplayMap = graphUsers
-            .Where(x => !string.IsNullOrWhiteSpace(x.UniqueName))
-            .GroupBy(x => x.UniqueName.Trim(), StringComparer.OrdinalIgnoreCase)
+	        .Where(x => !string.IsNullOrWhiteSpace(x.UniqueName))
+	        .GroupBy(x => x.UniqueName!.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.FirstOrDefault()?.DisplayName?.Trim() ?? "", StringComparer.OrdinalIgnoreCase);
 
         if (listUsers.Length == 0)
@@ -633,8 +633,8 @@ app.MapGet("/api/performance/done", async (AzdoClient az, string user, int year,
         catch { graphUsers = new List<AzdoUserDto>(); }
 
         var userDisplayMap = graphUsers
-            .Where(x => !string.IsNullOrWhiteSpace(x.UniqueName))
-            .GroupBy(x => x.UniqueName.Trim(), StringComparer.OrdinalIgnoreCase)
+	        .Where(x => !string.IsNullOrWhiteSpace(x.UniqueName))
+	        .GroupBy(x => x.UniqueName!.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.FirstOrDefault()?.DisplayName?.Trim() ?? "", StringComparer.OrdinalIgnoreCase);
 
         var assignedClause = uEsc.Contains("@")
@@ -1027,6 +1027,7 @@ public sealed class CodeReviewItemDto
 {
     public int Id { get; set; }
     public string? Title { get; set; }
+    public string? DescriptionHtml { get; set; }
     public string? State { get; set; }
     public string? BoardColumn { get; set; }
 
