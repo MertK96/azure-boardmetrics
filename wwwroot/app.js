@@ -1,6 +1,7 @@
 const $ = (id) => document.getElementById(id);
 
 let currentId = null;
+let currentDetailDescHtml = '';
 let azdoCfg = null;
 
 let activeView = 'board'; // 'board' | 'review' | 'assign' | 'perf'
@@ -367,8 +368,23 @@ async function openDetail(id){
   renderList('fb_list', (data.feedback || []).map(f => `${fmtDate(f.createdAt)} - ${f.note}`));
 
   if(descEl){
-    const desc = htmlToText(data.descriptionHtml);
+    currentDetailDescHtml = data.descriptionHtml || '';
+    const desc = htmlToText(currentDetailDescHtml);
     descEl.textContent = desc ? desc : '(açıklama yok)';
+
+    // Make description editable from detail view (button + click on text)
+    const openEdit = (e) => {
+      if(e){ e.preventDefault(); e.stopPropagation(); }
+      openEditDescriptionModalGeneric(wi.id, currentDetailDescHtml, (newHtml)=>{
+        currentDetailDescHtml = newHtml || '';
+        const t = htmlToText(currentDetailDescHtml);
+        descEl.textContent = t ? t : '(açıklama yok)';
+      });
+    };
+
+    descEl.onclick = openEdit;
+    const btn = $('d_desc_edit');
+    if(btn) btn.onclick = openEdit;
   }
 }
 
@@ -809,22 +825,28 @@ function createAssignCard(item){
     <div class="aTop">
       <a class="aId" href="${buildBoardUrl(item.id)}" target="_blank" rel="noreferrer">#${item.id}</a>
       <div class="aType">${escapeHtml(typeLabel)}</div>
+    </div>
+
     <div class="aTitle">${escapeHtml(title)}</div>
+
     <div class="aMeta">
       <span class="aState">${escapeHtml(state)}</span>
       ${renderAssigneePicker(item)}
+    </div>
+
     <div class="aDates">
       <span>Created: ${fmtDate(item.createdDate)}</span>
       <span>Changed: ${fmtDate(item.changedDate)}</span>
+    </div>
+
     ${renderCriticalHint(item)}
+
     <div class="aDescRow">
       <button type="button" class="aDescEdit" title="Açıklama düzenle">✎</button>
       <div class="aDescText">${escapeHtml(truncateText(htmlToText(item.descriptionHtml||''), 180))}</div>
     </div>
+
     <div class="aTags">${renderTagChips(tags)}</div>
-
-
-
   `;
 
   
@@ -2148,17 +2170,24 @@ async function createWorkItem(type, title, priority, descriptionText){
   return await res.json();
 }
 
-function openEditDescriptionModal(item){
+function openEditDescriptionModalGeneric(workItemId, currentHtml, afterSave){
   const body = document.createElement('div');
 
   const ta = document.createElement('textarea');
-  ta.value = htmlToText(item.descriptionHtml || '');
+  ta.value = htmlToText(currentHtml || '');
   body.appendChild(ta);
 
-  openModal(`#${item.id} Açıklama`, body, async ()=>{
-    await patchDescription(item.id, ta.value);
-    item.descriptionHtml = textToHtml(ta.value);
-    renderAssignable(); // re-render cards
+  openModal(`#${workItemId} Açıklama`, body, async ()=>{
+    await patchDescription(workItemId, ta.value);
+    const newHtml = textToHtml(ta.value);
+    if(typeof afterSave === 'function') afterSave(newHtml);
+  });
+}
+
+function openEditDescriptionModal(item){
+  openEditDescriptionModalGeneric(item.id, item.descriptionHtml || '', (newHtml)=>{
+    item.descriptionHtml = newHtml;
+    renderAssignable();
   });
 }
 

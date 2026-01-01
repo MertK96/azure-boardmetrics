@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>AZDO Board Metrics MVP</title>
-  <link rel="stylesheet" href="/styles.css?v=20260101-assign-create2"/>
+  <link rel="stylesheet" href="/styles.css?v=20260102-descfix"/>
 </head>
 <body>
   <header>
@@ -358,8 +358,11 @@
           </div>
 
           <div class="card">
-            <div class="cardTitle">Açıklama</div>
-            <div id="d_desc" class="desc">(açıklama yok)</div>
+            <div class="cardTitle rowTitle">
+              <span>Açıklama</span>
+              <button id="d_desc_edit" type="button" class="miniBtn" title="Açıklama düzenle">✎</button>
+            </div>
+            <div id="d_desc" class="desc" title="Düzenlemek için tıkla">(açıklama yok)</div>
           </div>
 
           <div class="card">
@@ -374,6 +377,6 @@
 
 </main>
 
-  <script src="/app.js?v=20260101-assign-create2"></script>
+  <script src="/app.js?v=20260102-descfix"></script>
 </body>
 </html>

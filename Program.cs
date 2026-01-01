@@ -283,6 +283,7 @@ ORDER BY [System.ChangedDate] DESC";
             OrderIndex = i,
             Id = wi.Id,
             Title = wi.GetString("System.Title"),
+            DescriptionHtml = wi.GetString("System.Description"),
             WorkItemType = type,
             State = state,
             Priority = priority,

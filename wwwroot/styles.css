@@ -45,6 +45,9 @@ tr.early:hover{background:#162a21}
 .cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
 .card{border:1px solid #223044;border-radius:14px;background:#0f1726;padding:12px}
 .cardTitle{font-weight:700;margin-bottom:10px}
+.cardTitle.rowTitle{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.miniBtn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);color:#fff;border-radius:10px;padding:4px 8px;cursor:pointer;font-size:12px;line-height:18px}
+.miniBtn:hover{background:rgba(255,255,255,.10)}
 .tabRow{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
 .tab{background:#0b1220;border:1px solid #223044;color:#e6edf3;border-radius:999px;padding:7px 12px;font-size:12px;cursor:pointer}
 .tab.active{background:#1f6feb;border-color:#1f6feb}
@@ -59,6 +62,7 @@ tr.early:hover{background:#162a21}
 .desc{
   font-size:12px;
   color:#c9d1d9;
+  cursor:pointer;
   white-space:pre-wrap;
   line-height:1.5;
   max-height:260px;
