@@ -208,7 +208,9 @@ ORDER BY [System.ChangedDate] DESC";
         if (!res.IsSuccessStatusCode)
         {
             var body = await res.Content.ReadAsStringAsync(ct);
-            throw new Exception($"AssignReviewOwner failed: {(int)res.StatusCode} {res.ReasonPhrase} :: {body
+            throw new Exception($"AssignReviewOwner failed: {(int)res.StatusCode} {res.ReasonPhrase} :: {body}");
+        }
+    }
 
     private static string FormatIdentityValue(string uniqueName, string? displayName)
     {
