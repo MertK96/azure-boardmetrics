@@ -260,6 +260,7 @@ public sealed record ResolutionEntry(bool IsResolved, DateTimeOffset? ResolvedAt
 public record WorkItemDto
 {
     public int Id { get; init; }
+    public string? Url { get; init; }
     public string? Title { get; init; }
     public string? WorkItemType { get; init; }
     public string? State { get; init; }
@@ -293,6 +294,7 @@ public static class DtoMapper
     public static WorkItemDto ToDto(WorkItemEntity x) => new()
     {
         Id = x.Id,
+        Url = x.Url,
         Title = x.Title,
         WorkItemType = x.WorkItemType,
         State = x.State,

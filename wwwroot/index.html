@@ -35,6 +35,7 @@
       <span class="chip chip-pool">Pool: Not girilmiş</span>
       <span class="chip chip-late">Forecast &gt; Due: gecikme riski</span>
       <span class="chip chip-early">Forecast &lt; Due: erken</span>
+      <span class="chip chip-overdue">Due ≤ Today: uyarı</span>
     </section>
 
     <section class="tableWrap">
@@ -84,7 +85,14 @@
 
         <div class="card">
           <div class="cardTitle">Ham Link</div>
-          <a id="d_url" target="_blank" rel="noreferrer">Azure DevOps'ta aç</a>
+          <div class="linkRow">
+            <a id="d_url" target="_blank" rel="noreferrer">Azure DevOps'ta aç</a>
+            <button id="d_open_embed" type="button" class="btnSecondary">Bu sayfada aç</button>
+          </div>
+          <div id="d_embed_wrap" class="embedWrap hidden">
+            <iframe id="d_iframe" title="Azure DevOps" loading="lazy"></iframe>
+            <div class="hint">Not: Azure DevOps tarafında iframe engeli varsa içerik görünmeyebilir.</div>
+          </div>
           <div class="hint">Not: Bu ekran sadece okuma + not (pool) amaçlı.</div>
         </div>
       </div>

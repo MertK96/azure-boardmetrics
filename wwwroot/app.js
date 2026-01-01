@@ -1,12 +1,49 @@
 const $ = (id) => document.getElementById(id);
 
 let currentId = null;
+let azdoCfg = null;
+
+function pad2(n){ return String(n).padStart(2,'0'); }
+
+function ymdLocal(d){
+  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+}
+
+function todayKey(){
+  return ymdLocal(new Date());
+}
+
+async function ensureConfig(){
+  if(azdoCfg) return azdoCfg;
+  try{
+    const res = await fetch('/api/config');
+    if(!res.ok) return (azdoCfg = {});
+    azdoCfg = await res.json();
+    return azdoCfg;
+  }catch{
+    return (azdoCfg = {});
+  }
+}
+
+function buildBoardUrl(workItemId){
+  // Beklenen format:
+  // https://dev.azure.com/Adisyo/adisyo-mill/_boards/board/t/Platform%20Team/Backlog%20items?workitem=XXX
+  const orgUrl = (azdoCfg?.organizationUrl || '').trim().replace(/\/+$/,'');
+  const project = (azdoCfg?.project || '').trim();
+  const team = (azdoCfg?.team || 'Platform Team').trim() || 'Platform Team';
+
+  if(!orgUrl || !project) return '#';
+
+  const projSeg = encodeURIComponent(project);
+  const teamSeg = encodeURIComponent(team);
+  return `${orgUrl}/${projSeg}/_boards/board/t/${teamSeg}/Backlog%20items?workitem=${encodeURIComponent(String(workItemId))}`;
+}
 
 function fmtDate(s){
   if(!s) return '';
   try{
     const d = new Date(s);
-    return d.toISOString().slice(0,10);
+    return ymdLocal(d);
   }catch{ return '';}
 }
 
@@ -49,6 +86,15 @@ function forecastClass(wi){
   return (fc > due) ? 'late' : 'early';
 }
 
+function overdueClass(wi){
+  // Uyarı: Due bugünün (local) tarihi veya öncesindeyse
+  if(!wi.dueDate) return '';
+  const due = dateKey(wi.dueDate);
+  if(!due) return '';
+  const today = todayKey();
+  return (due <= today) ? 'overdue' : '';
+}
+
 // Description HTML'i güvenli şekilde text'e çevir
 function htmlToText(html){
   if(!html) return '';
@@ -58,6 +104,7 @@ function htmlToText(html){
 }
 
 async function load(){
+  await ensureConfig();
   $('status').textContent = 'yükleniyor...';
 
   const assignee = $('assignee').value.trim();
@@ -90,8 +137,10 @@ async function load(){
     const tr = document.createElement('tr');
 
     const fcls = forecastClass(wi);
+    const ocls = overdueClass(wi);
     if(wi.needsFeedback) tr.classList.add('pool');
     if(fcls) tr.classList.add(fcls); // late / early
+    if(ocls) tr.classList.add(ocls);
 
     tr.appendChild(cell(wi.id));
     tr.appendChild(titleCell(wi));
@@ -115,6 +164,8 @@ async function load(){
 
 async function openDetail(id){
   currentId = id;
+
+  await ensureConfig();
 
   // paneli önce aç, kullanıcı görsün
   $('detail').classList.remove('hidden');
@@ -158,7 +209,13 @@ async function openDetail(id){
     wi.poolReason ? `PoolReason:${wi.poolReason}` : ''
   ].filter(Boolean).join(' | ');
 
-  $('d_url').href = wi.url ?? '#';
+  const boardUrl = buildBoardUrl(wi.id);
+  $('d_url').href = boardUrl;
+
+  const iframe = $('d_iframe');
+  if(iframe) iframe.src = '';
+  const wrap = $('d_embed_wrap');
+  if(wrap) wrap.classList.add('hidden');
 
   renderList('fb_list', (data.feedback || []).map(f => `${fmtDate(f.createdAt)} - ${f.note}`));
 
@@ -209,5 +266,17 @@ async function sendFeedback(){
 $('refresh').addEventListener('click', load);
 $('close').addEventListener('click', () => $('detail').classList.add('hidden'));
 $('sendFb').addEventListener('click', sendFeedback);
+
+// Azure DevOps'u iframe ile dene
+$('d_open_embed').addEventListener('click', async () => {
+  if(!currentId) return;
+  await ensureConfig();
+  const url = buildBoardUrl(currentId);
+  const wrap = $('d_embed_wrap');
+  const iframe = $('d_iframe');
+  if(!wrap || !iframe) return;
+  iframe.src = url;
+  wrap.classList.remove('hidden');
+});
 
 load();
