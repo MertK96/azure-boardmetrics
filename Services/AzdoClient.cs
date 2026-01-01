@@ -291,7 +291,45 @@ ORDER BY [System.ChangedDate] DESC";
         }
     }
 
-    public async Task<List<AzdoUserDto>> GetAzdoUsersAsync(int top, CancellationToken ct)
+    
+public async Task UpdateWorkItemAssignedToAsync(int id, string? assigneeUniqueName, CancellationToken ct)
+{
+    var project = (_opt.Project ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(project))
+        throw new Exception("Project boş. AZDO_PROJECT/appsettings üzerinden proje adı gerekli.");
+
+    // JSON Patch: set (or clear) System.AssignedTo
+    object[] patch;
+    if (string.IsNullOrWhiteSpace(assigneeUniqueName))
+    {
+        // Clear field (Azure DevOps accepts null to clear identity fields)
+        patch = new object[]
+        {
+            new { op = "add", path = "/fields/System.AssignedTo", value = (string?)null }
+        };
+    }
+    else
+    {
+        patch = new object[]
+        {
+            new { op = "add", path = "/fields/System.AssignedTo", value = assigneeUniqueName.Trim() }
+        };
+    }
+
+    var url = $"{project}/_apis/wit/workitems/{id}?api-version=7.1-preview.3";
+
+    using var req = new HttpRequestMessage(new HttpMethod("PATCH"), url);
+    req.Content = new StringContent(JsonSerializer.Serialize(patch), Encoding.UTF8, "application/json-patch+json");
+
+    using var res = await _http.SendAsync(req, ct);
+    if (!res.IsSuccessStatusCode)
+    {
+        var body = await res.Content.ReadAsStringAsync(ct);
+        throw new Exception($"WI UpdateAssignedTo failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
+    }
+}
+
+public async Task<List<AzdoUserDto>> GetAzdoUsersAsync(int top, CancellationToken ct)
     {
         var org = GetOrganizationName();
         if (string.IsNullOrWhiteSpace(org))

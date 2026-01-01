@@ -171,6 +171,34 @@ td.cellForecastOver{background:#2a2116}
 
 
 
+
+
+.aAssigneePicker{
+  border:1px solid #223044;
+  border-radius:999px;
+  padding:3px 8px;
+  font-size:12px;
+  line-height:18px;
+  cursor:pointer;
+  color:#c9d1d9;
+  background:#0b1220;
+}
+.aAssigneePicker.muted{opacity:.7}
+.aAssigneePicker:hover{border-color:#3a4b67}
+.aAssigneePicker .caret{opacity:.8;margin-left:4px}
+
+.aAssigneeSelect{
+  border:1px solid #223044;
+  border-radius:999px;
+  padding:3px 8px;
+  font-size:12px;
+  line-height:18px;
+  color:#c9d1d9;
+  background:#0b1220;
+  outline:none;
+}
+.aAssigneeSelect:focus{border-color:#4d77ff}
+
 /* Kişisel Bazlı Performans */
 
 .perfGrid{display:grid;grid-template-columns:minmax(480px, 2fr) minmax(680px, 3fr);gap:12px;align-items:stretch}

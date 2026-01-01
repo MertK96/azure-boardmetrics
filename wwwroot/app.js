@@ -66,10 +66,12 @@ function setView(view){
   }
 
   if(view === 'assign'){
-    ensureConfig().then(() => {
-      if(!assignLoaded) loadAssignableItems();
-      else renderAssignable();
-    });
+    ensureConfig()
+      .then(() => ensureAzdoUsers())
+      .then(() => {
+        if(!assignLoaded) loadAssignableItems();
+        else renderAssignable();
+      });
   }
 
   if(view === 'perf'){
@@ -811,7 +813,7 @@ function createAssignCard(item){
     <div class="aTitle">${escapeHtml(title)}</div>
     <div class="aMeta">
       <span class="aState">${escapeHtml(state)}</span>
-      ${assignee ? `<span class="aAssignee">${escapeHtml(assignee)}</span>` : `<span class="aAssignee muted">Unassigned</span>`}
+      ${renderAssigneePicker(item)}
     </div>
     <div class="aDates">
       <span>Created: ${fmtDate(item.createdDate)}</span>
@@ -819,11 +821,125 @@ function createAssignCard(item){
     </div>
     ${renderCriticalHint(item)}
     <div class="aTags">${renderTagChips(tags)}</div>
+
+// Inline assignee edit
+const picker = div.querySelector('.aAssigneePicker');
+if(picker){
+  picker.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    openAssigneeSelect(picker, item);
+  });
+}
+
   `;
 
   // Title click -> existing detail screen works only for In Progress items; so keep it as link to ADO
   return div;
 }
+
+
+function renderAssigneePicker(item){
+  const dn = parseAssigneeLabel(item);
+  const label = dn ? dn : 'Unassigned';
+  const muted = dn ? '' : ' muted';
+  return `<button type="button" class="aAssigneePicker${muted}" data-wi="${item.id}" title="Atamayı değiştir">${escapeHtml(label)} <span class="caret">▾</span></button>`;
+}
+
+async function patchAssignee(workItemId, assigneeUniqueName){
+  const res = await fetch(`/api/assignments/${workItemId}/assignee`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assigneeUniqueName: assigneeUniqueName || '' })
+  });
+
+  if(!res.ok){
+    const t = await res.text();
+    throw new Error(t || (`HTTP ${res.status}`));
+  }
+}
+
+function openAssigneeSelect(btn, item){
+  // Replace button with a select for inline editing
+  const sel = document.createElement('select');
+  sel.className = 'aAssigneeSelect';
+
+  // Build option list
+  const optUn = document.createElement('option');
+  optUn.value = '';
+  optUn.textContent = 'Unassigned';
+  sel.appendChild(optUn);
+
+  const users = (azdoUsers || [])
+    .map(u => ({
+      displayName: String(u?.displayName || '').trim(),
+      uniqueName: String(u?.uniqueName || '').trim()
+    }))
+    .filter(u => u.displayName || u.uniqueName)
+    .sort((a,b) => (a.displayName || a.uniqueName).localeCompare((b.displayName || b.uniqueName), 'tr'));
+
+  for(const u of users){
+    const o = document.createElement('option');
+    o.value = u.uniqueName || u.displayName;
+    o.textContent = u.displayName || u.uniqueName;
+    sel.appendChild(o);
+  }
+
+  // Determine current value
+  const curUnique = String(item?.assignedToUniqueName || '').trim();
+  const curDisplay = String(item?.assignedToDisplayName || '').trim();
+  if(curUnique){
+    sel.value = curUnique;
+    if(sel.value !== curUnique){
+      // Sometimes ADO returns "Name <mail>" etc; try contains match
+      const match = Array.from(sel.options).find(o => String(o.value).toLowerCase() === curUnique.toLowerCase());
+      if(match) sel.value = match.value;
+    }
+  }else if(curDisplay){
+    const match = Array.from(sel.options).find(o => String(o.textContent||'').toLowerCase() === curDisplay.toLowerCase());
+    if(match) sel.value = match.value;
+  }else{
+    sel.value = '';
+  }
+
+  // Swap
+  btn.replaceWith(sel);
+  sel.focus();
+
+  let changed = false;
+
+  sel.addEventListener('change', async () => {
+    changed = true;
+    const v = sel.value || '';
+    sel.disabled = true;
+
+    try{
+      await patchAssignee(item.id, v);
+
+      if(!v){
+        item.assignedToUniqueName = null;
+        item.assignedToDisplayName = null;
+      }else{
+        const found = users.find(x => (x.uniqueName || x.displayName) === v) || null;
+        item.assignedToUniqueName = found?.uniqueName || v;
+        item.assignedToDisplayName = found?.displayName || v;
+      }
+
+      // Re-render to update critical rules / filters
+      renderAssignable();
+    }catch(err){
+      alert('Atama güncellenemedi: ' + (err?.message || err));
+      renderAssignable();
+    }
+  });
+
+  sel.addEventListener('blur', () => {
+    if(changed) return;
+    // restore button if user clicks away
+    renderAssignable();
+  });
+}
+
 
 function isCriticalItem(item){
   const title = String(item?.title || '').toLowerCase();

@@ -308,6 +308,20 @@ ORDER BY [System.ChangedDate] DESC";
 
 
 // -------------------- Kişisel Bazlı Performans --------------------
+
+app.MapMethods("/api/assignments/{id:int}/assignee", new[] { "PATCH" }, async (int id, AssignAssigneeRequest req, AzdoClient az, CancellationToken ct) =>
+{
+    try
+    {
+        await az.UpdateWorkItemAssignedToAsync(id, req.AssigneeUniqueName, ct);
+        return Results.Ok(new { ok = true });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message);
+    }
+});
+
 app.MapGet("/api/performance/summary", async (AzdoClient az, string users, int year, int month, string? week, int? top, CancellationToken ct) =>
 {
     static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
@@ -1105,3 +1119,11 @@ public sealed class PerfCandleDto
 
     public PerfCandleItemDto[] Items { get; set; } = Array.Empty<PerfCandleItemDto>();
 }
+
+
+public sealed class AssignAssigneeRequest
+{
+    // Empty / null => Unassigned
+    public string? AssigneeUniqueName { get; set; }
+}
+
