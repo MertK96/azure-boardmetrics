@@ -15,6 +15,7 @@ let perfActiveUser = null;
 let perfSummary = [];
 let perfCandles = [];
 let perfDoneItems = [];
+let perfDoneById = new Map();
 let perfDailyStacks = [];
 let azdoUsersLoaded = false;
 let azdoUsers = [];
@@ -1472,7 +1473,12 @@ async function loadPerfDone(){
 
   const data = await res.json();
   perfCandles = Array.isArray(data?.candles) ? data.candles : [];
-  perfDoneItems = Array.isArray(data?.items) ? data.items : [];
+  // Task'lar kesinlikle dışarıda (backend zaten elemekte, ekstra güvenlik)
+  perfDoneItems = (Array.isArray(data?.items) ? data.items : []).filter(it => {
+    const t = String(it?.workItemType || '').toLowerCase();
+    return !t.includes('task');
+  });
+  perfDoneById = new Map(perfDoneItems.map(it => [Number(it.id)||0, it]));
   perfDailyStacks = buildPerfDailyStacks(perfDoneItems);
 
   const title = $('perf_chart_title');
@@ -1495,6 +1501,8 @@ function renderPerfDoneTable(){
   tbody.innerHTML = '';
 
   for(const it of (perfDoneItems || [])){
+    const t = String(it?.workItemType || '').toLowerCase();
+    if(t.includes('task')) continue;
     const tr = document.createElement('tr');
     const wi = { id: it.id, title: it.title };
 
@@ -1605,15 +1613,20 @@ function perfOnHover(e){
   const bug = Number(d.bugEff) || 0;
   const backlog = Number(d.backlogEff) || 0;
 
-  const bugItems = (d.bugItems || []).map(x => `#${x.id}: ${n2(x.effort ?? 0)}`).join(', ');
-  const blItems = (d.backlogItems || []).map(x => `#${x.id}: ${n2(x.effort ?? 0)}`).join(', ');
+  const line = (x) => {
+    const wi = perfDoneById.get(Number(x.id)||0);
+    const title = String(wi?.title || '').trim();
+    const t = title.length > 90 ? (title.slice(0, 87) + '...') : title;
+    return `#${x.id} - ${t}: ${n2(x.effort ?? 0)}`;
+  };
+
+  const bugLines = (d.bugItems || []).map(line).join('\n  ');
+  const blLines = (d.backlogItems || []).map(line).join('\n  ');
 
   tip.textContent =
 `${d.date}
-Backlog: ${n2(backlog)}${blItems ? `
-  ${blItems}` : ''}
-Bug: ${n2(bug)}${bugItems ? `
-  ${bugItems}` : ''}`;
+Backlog: ${n2(backlog)}${blLines ? `\n  ${blLines}` : ''}
+Bug: ${n2(bug)}${bugLines ? `\n  ${bugLines}` : ''}`;
 
   // position
   tip.style.left = Math.min((x+12), rect.width - 30) + 'px';
@@ -1683,7 +1696,7 @@ function renderPerfChart(){
 
   const n = days.length;
   const step = innerW / Math.max(1, n);
-  const barW = Math.max(10, Math.min(64, step * 0.78));
+  const barW = Math.max(12, Math.min(76, step * 0.85));
   const baseY = pad.t + innerH;
 
   function hFor(v){

@@ -381,7 +381,7 @@ FROM WorkItems
 WHERE
     {projectClause}[System.State] <> 'Removed'
     AND {assignedClause}
-    AND [System.WorkItemType] IN ('User Story','Bug','Task','Product Backlog Item')
+    AND [System.WorkItemType] IN ('User Story','Bug','Product Backlog Item')
 ORDER BY [System.ChangedDate] DESC";
 
             var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);
@@ -394,6 +394,7 @@ ORDER BY [System.ChangedDate] DESC";
                 fetched.AddRange(batch);
             }
 
+            // "Todos" burada Task değil; Product Backlog Item'ların To-Do tarafı olarak kullanılıyor.
             int stories = 0, bugs = 0, todos = 0, inProgress = 0, done = 0;
             string? displayName = null;
 
@@ -402,12 +403,26 @@ ORDER BY [System.ChangedDate] DESC";
                 var type = (wi.GetString("System.WorkItemType") ?? "").Trim();
                 var state = (wi.GetString("System.State") ?? "").Trim();
 
-                if (type.Equals("User Story", StringComparison.OrdinalIgnoreCase)) stories++;
-                else if (type.Equals("Bug", StringComparison.OrdinalIgnoreCase)) bugs++;
+                var isStory = type.Equals("User Story", StringComparison.OrdinalIgnoreCase);
+                var isBug = type.Equals("Bug", StringComparison.OrdinalIgnoreCase);
+                var isPbi = type.Equals("Product Backlog Item", StringComparison.OrdinalIgnoreCase);
 
-                if (IsDone(state)) done++;
-                else if (IsInProgress(state)) inProgress++;
-                else todos++;
+                if (isStory) stories++;
+                else if (isBug) bugs++;
+
+                if (IsDone(state))
+                {
+                    done++;
+                }
+                else if (IsInProgress(state))
+                {
+                    inProgress++;
+                }
+                else
+                {
+                    // To Do sütunu sadece PBI'ları sayar
+                    if (isPbi) todos++;
+                }
 
                 if (displayName is null)
                 {
@@ -515,7 +530,8 @@ FROM WorkItems
 WHERE
     {projectClause}[System.State] <> 'Removed'
     AND {assignedClause}
-    AND [System.WorkItemType] IN ('User Story','Bug','Task','Product Backlog Item')
+    // Performans grafiği ve Done listesi: sadece Bug + Product Backlog Item
+    AND [System.WorkItemType] IN ('Bug','Product Backlog Item')
     AND [System.State] IN ({doneIn})
     AND [System.ChangedDate] >= '{sinceStr}'
     AND [System.ChangedDate] < '{untilStr}'

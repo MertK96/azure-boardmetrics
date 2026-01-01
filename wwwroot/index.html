@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>AZDO Board Metrics MVP</title>
-  <link rel="stylesheet" href="/styles.css?v=20260101-perf5"/>
+  <link rel="stylesheet" href="/styles.css?v=20260101-perf6"/>
 </head>
 <body>
   <header>
@@ -278,7 +278,7 @@
                   <th>User</th>
                   <th>Stories</th>
                   <th>Bugs</th>
-                  <th>To Do (Task)</th>
+                  <th>Backlog (PBI)</th>
                   <th>In Progress</th>
                   <th>Done</th>
                 </tr>
@@ -286,6 +286,21 @@
               <tbody></tbody>
             </table>
             <div class="hint">Satıra tıklayınca sağdaki grafik ve alttaki Done listesi o kullanıcıya göre güncellenir.</div>
+          </section>
+        </div>
+
+        <div class="perfRight">
+          <section class="perfChartWrap">
+            <div class="sectionTitle">Done Effort (Bug vs Backlog)</div>
+            <div class="chartCard">
+              <div id="perf_chart_title" class="chartTitle"></div>
+              <div id="perf_metrics" class="perfMetrics"></div>
+              <div class="chartCanvasWrap">
+                <canvas id="perf_candle" width="2000" height="460"></canvas>
+                <div id="perf_tip" class="tooltip hidden"></div>
+              </div>
+              <div class="hint">Grafik üstüne gelince o gün tamamlanan Bug/Backlog maddeleri (ID + başlık) ve eforları görünür.</div>
+            </div>
           </section>
 
           <section class="tableWrap perfDoneWrap">
@@ -304,21 +319,6 @@
               </thead>
               <tbody></tbody>
             </table>
-          </section>
-        </div>
-
-        <div class="perfRight">
-          <section class="perfChartWrap">
-            <div class="sectionTitle">Done Effort (Bug vs Backlog)</div>
-            <div class="chartCard">
-              <div id="perf_chart_title" class="chartTitle"></div>
-              <div id="perf_metrics" class="perfMetrics"></div>
-              <div class="chartCanvasWrap">
-                <canvas id="perf_candle" width="2000" height="520"></canvas>
-                <div id="perf_tip" class="tooltip hidden"></div>
-              </div>
-              <div class="hint">Grafik üstüne gelince o gün tamamlanan Bug/Backlog maddeleri ve eforları (ID→Effort) görünür.</div>
-            </div>
           </section>
         </div>
       </div>
@@ -373,6 +373,6 @@
 
 </main>
 
-  <script src="/app.js?v=20260101-perf5"></script>
+  <script src="/app.js?v=20260101-perf6"></script>
 </body>
 </html>
