@@ -158,3 +158,20 @@ td.cellForecastOver{background:#2a2116}
 .aTags{display:flex;gap:6px;flex-wrap:wrap}
 .tagChip{font-size:11px;border:1px solid #223044;border-radius:999px;padding:3px 8px;color:#c9d1d9;background:#0b1220}
 
+
+
+/* Kişisel Bazlı Performans */
+.perfFilters .filterLeft{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.perfFilters select{min-width:130px}
+#perf_status{font-size:12px;color:#97a6b3}
+#tbl_perf tbody tr{cursor:pointer}
+#tbl_perf tbody tr:hover{background:rgba(255,255,255,.03)}
+#tbl_perf tbody tr.active{outline:1px solid #1f6feb;background:rgba(31,111,235,.10)}
+
+.perfChartWrap{margin-top:12px}
+.chartCard{border:1px solid #223044;border-radius:14px;background:#0b1220;padding:12px}
+.chartTitle{font-weight:700;margin-bottom:8px;color:#e6edf3}
+.chartCanvasWrap{position:relative;overflow:hidden;border:1px solid #223044;border-radius:12px;background:#0f1726}
+.chartCanvasWrap canvas{display:block;width:100%;height:auto}
+.tooltip{position:absolute;left:10px;top:10px;max-width:520px;background:#0b1220;border:1px solid #223044;border-radius:12px;padding:10px;font-size:12px;color:#c9d1d9;box-shadow:0 10px 30px rgba(0,0,0,.35);pointer-events:none;white-space:pre-wrap}
+.tooltip.hidden{display:none}

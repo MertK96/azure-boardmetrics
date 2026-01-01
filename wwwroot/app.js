@@ -3,11 +3,19 @@ const $ = (id) => document.getElementById(id);
 let currentId = null;
 let azdoCfg = null;
 
-let activeView = 'board'; // 'board' | 'review' | 'assign'
+let activeView = 'board'; // 'board' | 'review' | 'assign' | 'perf'
 
 let assignItems = [];
 let assignLoaded = false;
 let assignColumnSort = { 0: 'default', 1: 'default', 2: 'default', 3: 'default', 4: 'default' };
+
+let perfLoaded = false;
+let perfInitDone = false;
+let perfSelectedUsers = [];
+let perfActiveUser = null;
+let perfSummary = [];
+let perfCandles = [];
+let perfDoneItems = [];
 let azdoUsersLoaded = false;
 let azdoUsers = [];
 
@@ -30,18 +38,22 @@ function setView(view){
   const btnBoard = $('viewTab_board');
   const btnReview = $('viewTab_review');
   const btnAssign = $('viewTab_assign');
+  const btnPerf = $('viewTab_perf');
 
   const viewBoard = $('view_board');
   const viewReview = $('view_review');
   const viewAssign = $('view_assign');
+  const viewPerf = $('view_perf');
 
   if(btnBoard) btnBoard.classList.toggle('active', view === 'board');
   if(btnReview) btnReview.classList.toggle('active', view === 'review');
   if(btnAssign) btnAssign.classList.toggle('active', view === 'assign');
+  if(btnPerf) btnPerf.classList.toggle('active', view === 'perf');
 
   if(viewBoard) viewBoard.classList.toggle('hidden', view !== 'board');
   if(viewReview) viewReview.classList.toggle('hidden', view !== 'review');
   if(viewAssign) viewAssign.classList.toggle('hidden', view !== 'assign');
+  if(viewPerf) viewPerf.classList.toggle('hidden', view !== 'perf');
 
   if(view === 'review'){
     ensureAzdoUsers().then(loadReviewItems);
@@ -51,6 +63,13 @@ function setView(view){
     ensureConfig().then(() => {
       if(!assignLoaded) loadAssignableItems();
       else renderAssignable();
+    });
+  }
+
+  if(view === 'perf'){
+    ensureConfig().then(() => ensureAzdoUsers()).then(() => {
+      initPerfView();
+      loadPerf();
     });
   }
 }
@@ -1062,6 +1081,490 @@ if(kanban){
       }
     });
   });
+}
+
+
+
+/* -------------------- Kişisel Bazlı Performans -------------------- */
+
+function monthNameTr(m){
+  const names = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+  return names[(m-1) % 12] || String(m);
+}
+
+function parseIsoDateOnly(s){
+  if(!s) return null;
+  try{
+    const d = new Date(s);
+    if(isNaN(d.getTime())) return null;
+    return d;
+  }catch{ return null; }
+}
+
+function initPerfView(){
+  if(perfInitDone) return;
+  perfInitDone = true;
+
+  // Year/Month/Week dropdowns
+  const ySel = $('perf_year');
+  const mSel = $('perf_month');
+  const wSel = $('perf_week');
+
+  const now = new Date();
+  const curY = now.getFullYear();
+
+  if(ySel){
+    ySel.innerHTML = '';
+    for(let y = curY-4; y <= curY+1; y++){
+      const op = document.createElement('option');
+      op.value = String(y);
+      op.textContent = String(y);
+      if(y === curY) op.selected = true;
+      ySel.appendChild(op);
+    }
+  }
+
+  if(mSel){
+    mSel.innerHTML = '';
+    for(let m=1; m<=12; m++){
+      const op = document.createElement('option');
+      op.value = String(m);
+      op.textContent = monthNameTr(m);
+      if(m === (now.getMonth()+1)) op.selected = true;
+      mSel.appendChild(op);
+    }
+  }
+
+  if(wSel){
+    wSel.innerHTML = '';
+    const ops = [
+      { v: 'all', t: 'Hepsi' },
+      { v: '1', t: '1. hafta' },
+      { v: '2', t: '2. hafta' },
+      { v: '3', t: '3. hafta' },
+      { v: '4', t: '4. hafta' },
+      { v: '5', t: '5. hafta' },
+    ];
+    for(const o of ops){
+      const op = document.createElement('option');
+      op.value = o.v;
+      op.textContent = o.t;
+      if(o.v === 'all') op.selected = true;
+      wSel.appendChild(op);
+    }
+  }
+
+  // Users dropdown (multi-select)
+  renderPerfUsersDropdown();
+
+  const usersBtn = $('perf_users_btn');
+  const usersMenu = $('perf_users_menu');
+  const usersDd = $('perf_users_dd');
+
+  if(usersBtn && usersMenu){
+    usersBtn.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      usersMenu.classList.toggle('hidden');
+    });
+  }
+  if(usersDd) usersDd.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', () => {
+    if(usersMenu && !usersMenu.classList.contains('hidden')) usersMenu.classList.add('hidden');
+  });
+
+  const refreshBtn = $('perf_refresh');
+  if(refreshBtn) refreshBtn.addEventListener('click', loadPerf);
+
+  if(ySel) ySel.addEventListener('change', () => loadPerfDone());
+  if(mSel) mSel.addEventListener('change', () => loadPerfDone());
+  if(wSel) wSel.addEventListener('change', () => loadPerfDone());
+
+  // Canvas hover tooltip
+  const canvas = $('perf_candle');
+  if(canvas){
+    canvas.addEventListener('mousemove', (e) => perfOnHover(e));
+    canvas.addEventListener('mouseleave', () => perfHideTip());
+  }
+}
+
+function perfUserLabel(u){
+  if(!u) return '';
+  const dn = (u.displayName || '').trim();
+  if(dn) return dn;
+  const un = (u.uniqueName || '').trim();
+  if(!un) return '';
+  const at = un.indexOf('@');
+  return at > 0 ? un.slice(0, at) : un;
+}
+
+function renderPerfUsersDropdown(){
+  const list = $('perf_users_list');
+  const btn = $('perf_users_btn');
+  if(!list || !btn) return;
+
+  list.innerHTML = '';
+
+  const users = azdoUsers || [];
+  if(users.length === 0){
+    btn.textContent = 'Users';
+    return;
+  }
+
+  // default: select first user
+  if(!perfSelectedUsers || perfSelectedUsers.length === 0){
+    const first = users[0];
+    const key = (first.uniqueName || first.displayName || '').trim();
+    if(key) perfSelectedUsers = [key];
+    perfActiveUser = key;
+  }
+
+  // rebuild list
+  for(const u of users){
+    const key = (u.uniqueName || u.displayName || '').trim();
+    if(!key) continue;
+
+    const row = document.createElement('label');
+    row.className = 'tagItem';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = perfSelectedUsers.includes(key);
+    cb.addEventListener('change', () => {
+      if(cb.checked){
+        if(!perfSelectedUsers.includes(key)) perfSelectedUsers.push(key);
+        if(!perfActiveUser) perfActiveUser = key;
+      }else{
+        perfSelectedUsers = perfSelectedUsers.filter(x => x !== key);
+        if(perfActiveUser === key) perfActiveUser = perfSelectedUsers[0] || null;
+      }
+      updatePerfUsersButton();
+      loadPerf();
+    });
+
+    const sp = document.createElement('span');
+    sp.textContent = perfUserLabel(u);
+
+    row.appendChild(cb);
+    row.appendChild(sp);
+    list.appendChild(row);
+  }
+
+  updatePerfUsersButton();
+}
+
+function updatePerfUsersButton(){
+  const btn = $('perf_users_btn');
+  if(!btn) return;
+  const cnt = (perfSelectedUsers || []).length;
+  btn.textContent = cnt > 0 ? `Users (${cnt})` : 'Users';
+}
+
+async function loadPerf(){
+  await loadPerfSummary();
+  await loadPerfDone();
+}
+
+async function loadPerfSummary(){
+  const status = $('perf_status');
+  if(status) status.textContent = 'yükleniyor...';
+
+  if(!perfSelectedUsers || perfSelectedUsers.length === 0){
+    perfSummary = [];
+    renderPerfSummary();
+    if(status) status.textContent = 'User seçilmedi.';
+    return;
+  }
+
+  const params = new URLSearchParams();
+  params.set('users', perfSelectedUsers.join(','));
+  params.set('top', '2000');
+
+  let res;
+  try{
+    res = await fetch('/api/performance/summary?' + params.toString());
+  }catch{
+    if(status) status.textContent = 'API erişilemedi.';
+    return;
+  }
+
+  if(!res.ok){
+    const err = await res.json().catch(() => null);
+    if(status) status.textContent = err?.message || `API hata: ${res.status}`;
+    return;
+  }
+
+  const data = await res.json();
+  perfSummary = Array.isArray(data) ? data : [];
+  renderPerfSummary();
+
+  // set active user if missing
+  if(!perfActiveUser && perfSummary.length > 0){
+    perfActiveUser = perfSummary[0].user;
+  }
+
+  if(status) status.textContent = `ok (${perfSummary.length})`;
+}
+
+function renderPerfSummary(){
+  const tbody = $('tbl_perf')?.querySelector('tbody');
+  if(!tbody) return;
+
+  tbody.innerHTML = '';
+  const usersMap = new Map((azdoUsers || []).map(u => [(u.uniqueName || u.displayName || '').trim(), u]));
+
+  for(const r of (perfSummary || [])){
+    const tr = document.createElement('tr');
+    tr.dataset.user = r.user || '';
+    if(perfActiveUser && r.user === perfActiveUser) tr.classList.add('active');
+
+    tr.addEventListener('click', () => {
+      perfActiveUser = r.user || null;
+      renderPerfSummary();
+      loadPerfDone();
+    });
+
+    const uObj = usersMap.get(r.user || '');
+    const name = uObj ? perfUserLabel(uObj) : (r.displayName || r.user || '');
+
+    tr.appendChild(cell(name));
+    tr.appendChild(cell(String(r.stories ?? 0)));
+    tr.appendChild(cell(String(r.bugs ?? 0)));
+    tr.appendChild(cell(String(r.todos ?? 0)));
+    tr.appendChild(cell(String(r.inProgress ?? 0)));
+    tr.appendChild(cell(String(r.done ?? 0)));
+
+    tbody.appendChild(tr);
+  }
+}
+
+function getPerfPeriod(){
+  const year = parseInt(($('perf_year')?.value || ''), 10) || new Date().getFullYear();
+  const month = parseInt(($('perf_month')?.value || ''), 10) || (new Date().getMonth()+1);
+  const week = ($('perf_week')?.value || 'all');
+  return { year, month, week };
+}
+
+async function loadPerfDone(){
+  const status = $('perf_status');
+  if(!perfActiveUser){
+    perfCandles = [];
+    perfDoneItems = [];
+    renderPerfChart();
+    renderPerfDoneTable();
+    return;
+  }
+
+  const { year, month, week } = getPerfPeriod();
+
+  const params = new URLSearchParams();
+  params.set('user', perfActiveUser);
+  params.set('year', String(year));
+  params.set('month', String(month));
+  params.set('week', String(week));
+  params.set('top', '4000');
+
+  let res;
+  try{
+    res = await fetch('/api/performance/done?' + params.toString());
+  }catch{
+    if(status) status.textContent = 'API erişilemedi.';
+    return;
+  }
+
+  if(!res.ok){
+    const err = await res.json().catch(() => null);
+    if(status) status.textContent = err?.message || `API hata: ${res.status}`;
+    return;
+  }
+
+  const data = await res.json();
+  perfCandles = Array.isArray(data?.candles) ? data.candles : [];
+  perfDoneItems = Array.isArray(data?.items) ? data.items : [];
+
+  const title = $('perf_chart_title');
+  if(title){
+    const userObj = (azdoUsers || []).find(x => (x.uniqueName || x.displayName || '').trim() === perfActiveUser);
+    const uName = userObj ? perfUserLabel(userObj) : perfActiveUser;
+    const wTxt = (String(week) === 'all') ? 'Aylık' : `Hafta ${week}`;
+    title.textContent = `${uName} • ${year} / ${monthNameTr(month)} • ${wTxt}`;
+  }
+
+  renderPerfChart();
+  renderPerfDoneTable();
+}
+
+function renderPerfDoneTable(){
+  const tbody = $('tbl_perf_done')?.querySelector('tbody');
+  if(!tbody) return;
+
+  tbody.innerHTML = '';
+
+  for(const it of (perfDoneItems || [])){
+    const tr = document.createElement('tr');
+    const wi = { id: it.id, title: it.title };
+
+    tr.appendChild(idCell(wi));
+    tr.appendChild(cell(it.title || ''));
+    tr.appendChild(cell(it.workItemType || ''));
+    tr.appendChild(cell(it.effort == null ? '' : String(it.effort)));
+
+    tr.appendChild(cell(fmtDate(it.startDate)));
+    tr.appendChild(cell(fmtDate(it.dueDate)));
+    tr.appendChild(cell(fmtDate(it.completedDate)));
+
+    tbody.appendChild(tr);
+  }
+}
+
+function perfHideTip(){
+  const tip = $('perf_tip');
+  if(tip) tip.classList.add('hidden');
+}
+
+function perfOnHover(e){
+  const canvas = $('perf_candle');
+  const tip = $('perf_tip');
+  if(!canvas || !tip || !perfCandles || perfCandles.length === 0) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+
+  // Chart layout must match renderPerfChart()
+  const W = canvas.width;
+  const H = canvas.height;
+  const pad = { l: 46, r: 12, t: 18, b: 28 };
+  const innerW = W - pad.l - pad.r;
+
+  const n = perfCandles.length;
+  const step = innerW / Math.max(1, n);
+  const idx = Math.floor((x * (W/rect.width) - pad.l) / step);
+
+  if(idx < 0 || idx >= n){
+    tip.classList.add('hidden');
+    return;
+  }
+
+  const c = perfCandles[idx];
+  const items = (c.items || []).map(x => `#${x.id}: ${x.effort ?? 0}`).join(', ');
+  tip.textContent = `${c.date}\nOpen: ${c.open ?? 0}  High: ${c.high ?? 0}  Low: ${c.low ?? 0}  Close: ${c.close ?? 0}\n${items || '(madde yok)'}`;
+
+  // position
+  tip.style.left = Math.min((x+12), rect.width - 30) + 'px';
+  tip.style.top = Math.min((y+12), rect.height - 30) + 'px';
+  tip.classList.remove('hidden');
+}
+
+function renderPerfChart(){
+  const canvas = $('perf_candle');
+  if(!canvas) return;
+
+  const ctx = canvas.getContext('2d');
+  if(!ctx) return;
+
+  const W = canvas.width;
+  const H = canvas.height;
+
+  // clear
+  ctx.clearRect(0,0,W,H);
+
+  const pad = { l: 46, r: 12, t: 18, b: 28 };
+  const innerW = W - pad.l - pad.r;
+  const innerH = H - pad.t - pad.b;
+
+  // axis
+  ctx.strokeStyle = 'rgba(255,255,255,.15)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, pad.t);
+  ctx.lineTo(pad.l, pad.t + innerH);
+  ctx.lineTo(pad.l + innerW, pad.t + innerH);
+  ctx.stroke();
+
+  const candles = perfCandles || [];
+  if(candles.length === 0){
+    ctx.fillStyle = 'rgba(201,209,217,.65)';
+    ctx.font = '14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+    ctx.fillText('Bu aralıkta Done veri yok.', pad.l + 10, pad.t + 24);
+    return;
+  }
+
+  let minV = Infinity;
+  let maxV = -Infinity;
+  for(const c of candles){
+    const lo = (c.low ?? 0);
+    const hi = (c.high ?? 0);
+    if(lo < minV) minV = lo;
+    if(hi > maxV) maxV = hi;
+  }
+  if(!isFinite(minV)) minV = 0;
+  if(!isFinite(maxV)) maxV = 1;
+  if(maxV === minV) maxV = minV + 1;
+
+  function yFor(v){
+    const t = (v - minV) / (maxV - minV);
+    return pad.t + innerH - (t * innerH);
+  }
+
+  // Y labels (3 ticks)
+  ctx.fillStyle = 'rgba(201,209,217,.65)';
+  ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+  for(let i=0; i<=2; i++){
+    const v = minV + (i*(maxV-minV)/2);
+    const y = yFor(v);
+    ctx.fillText(String(Math.round(v*100)/100), 6, y+4);
+    ctx.strokeStyle = 'rgba(255,255,255,.06)';
+    ctx.beginPath();
+    ctx.moveTo(pad.l, y);
+    ctx.lineTo(pad.l+innerW, y);
+    ctx.stroke();
+  }
+
+  const n = candles.length;
+  const step = innerW / n;
+  const candleW = Math.max(4, step * 0.55);
+
+  for(let i=0; i<n; i++){
+    const c = candles[i];
+    const cx = pad.l + i*step + step/2;
+
+    const o = (c.open ?? 0);
+    const cl = (c.close ?? 0);
+    const hi = (c.high ?? 0);
+    const lo = (c.low ?? 0);
+
+    const yHi = yFor(hi);
+    const yLo = yFor(lo);
+    const yO = yFor(o);
+    const yC = yFor(cl);
+
+    // wick
+    ctx.strokeStyle = 'rgba(201,209,217,.65)';
+    ctx.beginPath();
+    ctx.moveTo(cx, yHi);
+    ctx.lineTo(cx, yLo);
+    ctx.stroke();
+
+    // body
+    const top = Math.min(yO, yC);
+    const bot = Math.max(yO, yC);
+    const h = Math.max(2, bot - top);
+
+    ctx.fillStyle = (cl >= o) ? 'rgba(16,185,129,.25)' : 'rgba(239,68,68,.25)';
+    ctx.strokeStyle = (cl >= o) ? 'rgba(16,185,129,.65)' : 'rgba(239,68,68,.65)';
+    ctx.lineWidth = 1;
+
+    ctx.beginPath();
+    ctx.rect(cx - candleW/2, top, candleW, h);
+    ctx.fill();
+    ctx.stroke();
+
+    // X labels: every ~5
+    if(n <= 12 || (i % Math.ceil(n/10) === 0)){
+      ctx.fillStyle = 'rgba(201,209,217,.55)';
+      ctx.font = '11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.fillText(String(c.date).slice(5), cx - 18, pad.t + innerH + 18);
+    }
+  }
 }
 
 

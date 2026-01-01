@@ -304,6 +304,322 @@ ORDER BY [System.ChangedDate] DESC";
     }
 });
 
+
+
+// -------------------- Kişisel Bazlı Performans --------------------
+app.MapGet("/api/performance/summary", async (AzdoClient az, string users, int? top, CancellationToken ct) =>
+{
+    static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
+
+    try
+    {
+        var take = Math.Clamp(top ?? 1200, 1, 5000);
+
+        var projRaw = (az.Options.Project ?? "").Trim();
+        var proj = EscapeWiql(projRaw);
+        var projectClause = string.IsNullOrWhiteSpace(projRaw)
+            ? ""
+            : $"[System.TeamProject] = '{proj}' AND ";
+
+        var listUsers = (users ?? "")
+            .Split(new[] { ',', ';', '|' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (listUsers.Length == 0)
+            return Results.Ok(Array.Empty<UserPerfSummaryDto>());
+
+        // Done / InProgress state sets (includes TR-ish fallbacks)
+        var doneStates = new HashSet<string>(
+            (az.Options.DoneStates ?? Array.Empty<string>())
+                .Concat(new[] { "Done", "Closed", "Resolved", "Tamamlandı", "Tamamlandi", "Kapalı", "Kapali", "Çözüldü", "Cozuldu", "Bitti" })
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim()),
+            StringComparer.OrdinalIgnoreCase);
+
+        bool IsDone(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return false;
+            if (doneStates.Contains(s.Trim())) return true;
+            var ss = s.Trim().ToLowerInvariant();
+            return ss.Contains("done") || ss.Contains("closed") || ss.Contains("resolved") || ss.Contains("tamam") || ss.Contains("bitti");
+        }
+
+        bool IsInProgress(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return false;
+            var ss = s.Trim().ToLowerInvariant();
+            return ss.Contains("progress") || ss == "active" || ss == "in progress" || ss.Contains("develop") || ss.Contains("geliştir");
+        }
+
+        var result = new List<UserPerfSummaryDto>();
+
+        foreach (var uRaw in listUsers)
+        {
+            var u = uRaw.Trim();
+            var uEsc = EscapeWiql(u);
+
+            var wiql = $@"
+SELECT [System.Id]
+FROM WorkItems
+WHERE
+    {projectClause}[System.State] <> 'Removed'
+    AND [System.AssignedTo] = '{uEsc}'
+    AND [System.WorkItemType] IN ('User Story','Bug','Task')
+ORDER BY [System.ChangedDate] DESC";
+
+            var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);
+            ids = ids.Take(take).ToList();
+
+            var fetched = new List<AzdoWorkItem>();
+            foreach (var chunk in ids.Chunk(200))
+            {
+                var batch = await az.GetWorkItemsBatchAsync(chunk, ct);
+                fetched.AddRange(batch);
+            }
+
+            int stories = 0, bugs = 0, todos = 0, inProgress = 0, done = 0;
+            string? displayName = null;
+
+            foreach (var wi in fetched)
+            {
+                var type = (wi.GetString("System.WorkItemType") ?? "").Trim();
+                var state = (wi.GetString("System.State") ?? "").Trim();
+
+                if (type.Equals("User Story", StringComparison.OrdinalIgnoreCase)) stories++;
+                else if (type.Equals("Bug", StringComparison.OrdinalIgnoreCase)) bugs++;
+                else if (type.Equals("Task", StringComparison.OrdinalIgnoreCase)) todos++;
+
+                if (IsDone(state)) done++;
+                else if (IsInProgress(state)) inProgress++;
+
+                if (displayName is null)
+                {
+                    var assigned = wi.GetIdentity("System.AssignedTo");
+                    displayName = assigned?.DisplayName;
+                }
+            }
+
+            result.Add(new UserPerfSummaryDto
+            {
+                User = u,
+                DisplayName = displayName,
+                Stories = stories,
+                Bugs = bugs,
+                Todos = todos,
+                InProgress = inProgress,
+                Done = done
+            });
+        }
+
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        var msg = ex.Message;
+        if (msg.Length > 1200) msg = msg[..1200];
+        return Results.Json(new { message = msg }, statusCode: 502);
+    }
+});
+
+app.MapGet("/api/performance/done", async (AzdoClient az, string user, int year, int month, string? week, int? top, CancellationToken ct) =>
+{
+    static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
+
+    try
+    {
+        var uRaw = (user ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(uRaw))
+            return Results.BadRequest(new { message = "user boş olamaz." });
+
+        var take = Math.Clamp(top ?? 2000, 1, 10000);
+
+        // date range: month or week-in-month (1..5). week=all => month
+        var daysInMonth = DateTime.DaysInMonth(year, month);
+        var mStart = new DateTime(year, month, 1);
+
+        var w = (week ?? "all").Trim().ToLowerInvariant();
+        var isAll = w == "" || w == "all" || w == "hepsi";
+
+        DateTime start = mStart;
+        DateTime endExclusive = mStart.AddMonths(1);
+
+        if (!isAll)
+        {
+            if (!int.TryParse(w, out var wn)) wn = 1;
+            if (wn < 1) wn = 1;
+            if (wn > 5) wn = 5;
+
+            var startDay = 1 + (wn - 1) * 7;
+            if (startDay > daysInMonth) startDay = Math.Max(1, daysInMonth - 6);
+
+            var endDay = Math.Min(startDay + 6, daysInMonth);
+
+            start = new DateTime(year, month, startDay);
+            endExclusive = new DateTime(year, month, endDay).AddDays(1);
+        }
+
+        var sinceStr = start.ToString("yyyy-MM-dd");
+        var untilStr = endExclusive.ToString("yyyy-MM-dd");
+
+        var projRaw = (az.Options.Project ?? "").Trim();
+        var proj = EscapeWiql(projRaw);
+        var projectClause = string.IsNullOrWhiteSpace(projRaw)
+            ? ""
+            : $"[System.TeamProject] = '{proj}' AND ";
+
+        var doneStates = (az.Options.DoneStates ?? Array.Empty<string>())
+            .Concat(new[] { "Done", "Closed", "Resolved", "Tamamlandı", "Tamamlandi", "Kapalı", "Kapali", "Çözüldü", "Cozuldu", "Bitti" })
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => $"'{EscapeWiql(x.Trim())}'")
+            .Distinct()
+            .ToArray();
+
+        var doneIn = string.Join(",", doneStates);
+
+        var uEsc = EscapeWiql(uRaw);
+
+        var wiql = $@"
+SELECT [System.Id]
+FROM WorkItems
+WHERE
+    {projectClause}[System.State] <> 'Removed'
+    AND [System.AssignedTo] = '{uEsc}'
+    AND [System.WorkItemType] IN ('User Story','Bug','Task','Product Backlog Item')
+    AND [System.State] IN ({doneIn})
+    AND [System.ChangedDate] >= '{sinceStr}'
+    AND [System.ChangedDate] < '{untilStr}'
+ORDER BY [System.ChangedDate] ASC";
+
+        var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);
+        ids = ids.Take(take).ToList();
+
+        // extra fields for effort / dates
+        var extra = new[]
+        {
+            "Microsoft.VSTS.Scheduling.StartDate",
+            "Microsoft.VSTS.Scheduling.DueDate",
+            "Microsoft.VSTS.Scheduling.TargetDate",
+            "Microsoft.VSTS.Common.ClosedDate",
+            "Microsoft.VSTS.Common.ResolvedDate",
+            "Microsoft.VSTS.Scheduling.Effort",
+            "Microsoft.VSTS.Scheduling.StoryPoints",
+            "Microsoft.VSTS.Scheduling.CompletedWork",
+            "Microsoft.VSTS.Scheduling.OriginalEstimate"
+        };
+
+        var fetched = new List<AzdoWorkItem>();
+        foreach (var chunk in ids.Chunk(200))
+        {
+            var batch = await az.GetWorkItemsBatchAsync(chunk, ct, extra);
+            fetched.AddRange(batch);
+        }
+
+        // TZ: Europe/Istanbul if available
+        TimeZoneInfo tz;
+        try { tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Istanbul"); }
+        catch { tz = TimeZoneInfo.Utc; }
+
+        static double? PickEffort(AzdoWorkItem wi)
+        {
+            foreach (var f in new[]
+            {
+                "Microsoft.VSTS.Scheduling.Effort",
+                "Microsoft.VSTS.Scheduling.StoryPoints",
+                "Microsoft.VSTS.Scheduling.CompletedWork",
+                "Microsoft.VSTS.Scheduling.OriginalEstimate"
+            })
+            {
+                var v = wi.GetDouble(f);
+                if (v is not null) return v;
+            }
+            return null;
+        }
+
+        static DateTimeOffset? PickDate(AzdoWorkItem wi, params string[] fields)
+        {
+            foreach (var f in fields)
+            {
+                var d = wi.GetDate(f);
+                if (d is not null && d.Value > DateTimeOffset.MinValue) return d;
+            }
+            return null;
+        }
+
+        var byId = fetched.ToDictionary(x => x.Id, x => x);
+        var items = new List<PerfDoneItemDto>();
+
+        foreach (var id in ids)
+        {
+            if (!byId.TryGetValue(id, out var wi)) continue;
+
+            var effort = PickEffort(wi);
+            var startDate = PickDate(wi, "Microsoft.VSTS.Scheduling.StartDate");
+            var dueDate = PickDate(wi, az.Options.DueDateField, "Microsoft.VSTS.Scheduling.DueDate", "Microsoft.VSTS.Scheduling.TargetDate");
+            var closedDate = PickDate(wi, "Microsoft.VSTS.Common.ClosedDate", "Microsoft.VSTS.Common.ResolvedDate");
+            var completed = closedDate ?? wi.GetDate("System.ChangedDate") ?? DateTimeOffset.UtcNow;
+
+            items.Add(new PerfDoneItemDto
+            {
+                Id = wi.Id,
+                Title = wi.GetString("System.Title"),
+                WorkItemType = wi.GetString("System.WorkItemType"),
+                State = wi.GetString("System.State"),
+                Effort = effort,
+                StartDate = startDate,
+                DueDate = dueDate,
+                CompletedDate = completed
+            });
+        }
+
+        // Build daily candles
+        var groups = items
+            .GroupBy(x =>
+            {
+                var utc = (x.CompletedDate ?? DateTimeOffset.UtcNow).UtcDateTime;
+                var local = TimeZoneInfo.ConvertTimeFromUtc(utc, tz).Date;
+                return local;
+            })
+            .OrderBy(g => g.Key);
+
+        var candles = new List<PerfCandleDto>();
+
+        foreach (var g in groups)
+        {
+            var ordered = g
+                .OrderBy(x => (x.CompletedDate ?? DateTimeOffset.UtcNow))
+                .ToList();
+
+            double val(PerfDoneItemDto x) => x.Effort ?? 0;
+
+            var open = val(ordered.First());
+            var close = val(ordered.Last());
+            var high = ordered.Max(x => val(x));
+            var low = ordered.Min(x => val(x));
+
+            candles.Add(new PerfCandleDto
+            {
+                Date = g.Key.ToString("yyyy-MM-dd"),
+                Open = open,
+                High = high,
+                Low = low,
+                Close = close,
+                Items = ordered.Select(x => new PerfCandleItemDto { Id = x.Id, Effort = x.Effort ?? 0 }).ToArray()
+            });
+        }
+
+        return Results.Ok(new { items, candles });
+    }
+    catch (Exception ex)
+    {
+        var msg = ex.Message;
+        if (msg.Length > 1200) msg = msg[..1200];
+        return Results.Json(new { message = msg }, statusCode: 502);
+    }
+});
+
+
 app.MapGet("/api/workitems", async (AppDbContext db, string? assignee, string? flagged, int? top) =>
 {
     // SADECE In Progress

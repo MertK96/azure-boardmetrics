@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>AZDO Board Metrics MVP</title>
-  <link rel="stylesheet" href="/styles.css?v=20260101-assign3"/>
+  <link rel="stylesheet" href="/styles.css?v=20260101-perf1"/>
 </head>
 <body>
   <header>
@@ -17,6 +17,7 @@
       <button id="viewTab_board" class="tabBtn active" type="button">Board</button>
       <button id="viewTab_review" class="tabBtn" type="button">Code Review Ataması</button>
       <button id="viewTab_assign" class="tabBtn" type="button">Atanacak Maddeler</button>
+      <button id="viewTab_perf" class="tabBtn" type="button">Kişisel Bazlı Performans</button>
     </section>
 
     <!-- -------------------- BOARD VIEW -------------------- -->
@@ -234,7 +235,93 @@
           </div>
         </div>
       </section>
+    
+    <!-- -------------------- KİŞİSEL BAZLI PERFORMANS VIEW -------------------- -->
+    <div id="view_perf" class="hidden">
+      <section class="filters perfFilters">
+        <div class="filterRow">
+          <div class="filterLeft">
+            <div class="dd" id="perf_users_dd">
+              <button id="perf_users_btn" type="button" class="ddBtn">Users</button>
+              <div id="perf_users_menu" class="ddMenu hidden">
+                <div class="ddHead">
+                  <div class="muted">Users</div>
+                </div>
+                <div id="perf_users_list" class="tagsBox"></div>
+              </div>
+            </div>
+
+            <label>
+              Yıl:
+              <select id="perf_year"></select>
+            </label>
+
+            <label>
+              Ay:
+              <select id="perf_month"></select>
+            </label>
+
+            <label>
+              Hafta:
+              <select id="perf_week"></select>
+            </label>
+
+            <button id="perf_refresh" type="button">Yenile</button>
+            <span id="perf_status"></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="tableWrap">
+        <div class="sectionTitle">Kişisel Bazlı Performans</div>
+        <table id="tbl_perf">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Stories</th>
+              <th>Bugs</th>
+              <th>To Do (Task)</th>
+              <th>In Progress</th>
+              <th>Done</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div class="hint">Satıra tıklayınca alttaki grafik ve Done listesi o kullanıcıya göre güncellenir.</div>
+      </section>
+
+      <section class="perfChartWrap">
+        <div class="sectionTitle">Done Effort (Mum Grafik)</div>
+        <div class="chartCard">
+          <div id="perf_chart_title" class="chartTitle"></div>
+          <div class="chartCanvasWrap">
+            <canvas id="perf_candle" width="1200" height="320"></canvas>
+            <div id="perf_tip" class="tooltip hidden"></div>
+          </div>
+          <div class="hint">Mum üstüne gelince o gün kapanan maddeler ve eforları (ID→Effort) görünür.</div>
+        </div>
+      </section>
+
+      <section class="tableWrap">
+        <div class="sectionTitle">Done Statüsündeki Maddeler</div>
+        <table id="tbl_perf_done">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Title</th>
+              <th>Type</th>
+              <th>Effort</th>
+              <th>Start</th>
+              <th>Due</th>
+              <th>Completed</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
     </div>
+
+</div>
 
 
     <!-- -------------------- DETAIL (GLOBAL) -------------------- -->
@@ -286,6 +373,6 @@
 
 </main>
 
-  <script src="/app.js?v=20260101-assign3"></script>
+  <script src="/app.js?v=20260101-perf1"></script>
 </body>
 </html>
