@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net;
 using System.Text.RegularExpressions;
 using AzdoBoardMetrics.Data;
 using AzdoBoardMetrics.Services;
@@ -179,6 +180,37 @@ app.MapPost("/api/workitems/{id:int}/feedback", async (AppDbContext db, int id, 
     return Results.Ok(f);
 });
 
+// Azure DevOps iş öğesine yorum (Discussion) ekle
+app.MapPost("/api/workitems/{id:int}/comment", async (AzdoClient az, AppDbContext db, int id, CommentCreate dto, CancellationToken ct) =>
+{
+    // UI kısıtı: sadece In Progress olanları yorumlayalım
+    var wi = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (wi is null) return Results.NotFound();
+    if (!string.Equals(wi.State, "In Progress", StringComparison.OrdinalIgnoreCase))
+        return Results.NotFound();
+
+    var raw = (dto.Text ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(raw))
+        return Results.BadRequest(new { message = "Yorum boş olamaz." });
+
+    // Azure DevOps UI'nın gönderdiği gibi HTML'e sar (güvenli)
+    var encoded = WebUtility.HtmlEncode(raw).Replace("\r\n", "\n").Replace("\n", "<br/>");
+    var html = $"<div>{encoded}</div>";
+
+    try
+    {
+        await az.AddWorkItemCommentHtmlAsync(id, html, ct);
+        return Results.Ok(new { ok = true });
+    }
+    catch (HttpRequestException ex)
+    {
+        // 401/403/429/500 vs detayını UI'ya kısa mesaj olarak döndür
+        var msg = ex.Message;
+        if (msg.Length > 500) msg = msg[..500];
+        return Results.Json(new { message = msg }, statusCode: 502);
+    }
+});
+
 // "Notlar sekmesi" için liste endpoint'i (work item tablosundan ayrı)
 app.MapGet("/api/notes", async (AppDbContext db, string? assignee, bool? resolved, int? top) =>
 {
@@ -240,6 +272,7 @@ app.Run();
 
 // -------------------- DTOs --------------------
 public record FeedbackCreate(string? Note);
+public record CommentCreate(string? Text);
 public record ResolveDto(bool IsResolved);
 
 public sealed class NoteRow
@@ -260,7 +293,6 @@ public sealed record ResolutionEntry(bool IsResolved, DateTimeOffset? ResolvedAt
 public record WorkItemDto
 {
     public int Id { get; init; }
-    public string? Url { get; init; }
     public string? Title { get; init; }
     public string? WorkItemType { get; init; }
     public string? State { get; init; }
@@ -294,7 +326,6 @@ public static class DtoMapper
     public static WorkItemDto ToDto(WorkItemEntity x) => new()
     {
         Id = x.Id,
-        Url = x.Url,
         Title = x.Title,
         WorkItemType = x.WorkItemType,
         State = x.State,

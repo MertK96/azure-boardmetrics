@@ -233,6 +233,28 @@ ORDER BY [System.ChangedDate] DESC";
         return await res.Content.ReadAsByteArrayAsync(ct);
     }
 
+    // Work item'a yorum ekle (Discussion/Comments)
+    // Not: Bu, UI'da snifflenen Contribution/HierarchyQuery çağrısı yerine resmi Comments API'yi kullanır.
+    // PAT için vso.work_write scope gerekir.
+    public async Task AddWorkItemCommentHtmlAsync(int workItemId, string htmlText, CancellationToken ct)
+    {
+        var text = htmlText ?? string.Empty;
+        var path = $"{_opt.Project}/_apis/wit/workItems/{workItemId}/comments?format=html&api-version=7.1-preview.4";
+        var body = JsonSerializer.Serialize(new { text });
+
+        using var res = await _http.PostAsync(
+            path,
+            new StringContent(body, Encoding.UTF8, "application/json"),
+            ct);
+
+        if (!res.IsSuccessStatusCode)
+        {
+            var err = await res.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException(
+                $"Add comment failed. Status={(int)res.StatusCode} {res.ReasonPhrase}\n\nBody:\n{err}");
+        }
+    }
+
     private static string EscapeWiql(string s) => s.Replace("'", "''");
 }
 

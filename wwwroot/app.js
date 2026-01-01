@@ -3,6 +3,8 @@ const $ = (id) => document.getElementById(id);
 let currentId = null;
 let azdoCfg = null;
 
+let activeTab = 'note'; // 'note' | 'comment'
+
 function pad2(n){ return String(n).padStart(2,'0'); }
 
 function ymdLocal(d){
@@ -26,7 +28,7 @@ async function ensureConfig(){
 }
 
 function buildBoardUrl(workItemId){
-  // Ä°stenen format:
+  // İstenen format:
   // https://dev.azure.com/Adisyo/adisyo-mill/_boards/board/t/Platform%20Team/Backlog%20items?workitem=17631
 
   const orgUrlRaw = (azdoCfg?.organizationUrl || '').trim();
@@ -89,7 +91,7 @@ function titleCell(wi){
 
 /**
  * Forecast vs Due mismatch (risk/early)
- * Not: Start+Effort+Due+ForecastDue varsa anlamlÄ±.
+ * Not: Start+Effort+Due+ForecastDue varsa anlamlı.
  */
 function forecastMismatchClass(wi){
   if(!wi.startDate) return '';
@@ -105,8 +107,8 @@ function forecastMismatchClass(wi){
 }
 
 /**
- * Due geÃ§miÅŸ mi? (commitment uyarÄ±sÄ±)
- * Ä°stek: Startâ†’Due ayrÄ± renk (pratikte Due <= Today olduÄŸunda belirginleÅŸir)
+ * Due geçmiş mi? (commitment uyarısı)
+ * İstek: Start→Due ayrı renk (pratikte Due <= Today olduğunda belirginleşir)
  */
 function commitmentOverdue(wi){
   if(!wi.dueDate) return false;
@@ -116,8 +118,8 @@ function commitmentOverdue(wi){
 }
 
 /**
- * ForecastDue geÃ§miÅŸ mi? (forecast uyarÄ±sÄ±)
- * Ä°stek: Startâ†’ForecastDue ayrÄ± renk (pratikte ForecastDue <= Today olduÄŸunda belirginleÅŸir)
+ * ForecastDue geçmiş mi? (forecast uyarısı)
+ * İstek: Start→ForecastDue ayrı renk (pratikte ForecastDue <= Today olduğunda belirginleşir)
  */
 function forecastOverdue(wi){
   if(!wi.forecastDueDate) return false;
@@ -126,17 +128,17 @@ function forecastOverdue(wi){
   return fc <= todayKey();
 }
 
-// Description HTML'i gÃ¼venli ÅŸekilde text'e Ã§evir
+// Description HTML'i güvenli şekilde text'e çevir
 function htmlToText(html){
   if(!html) return '';
   const tmp = document.createElement('div');
-  tmp.innerHTML = html; // sadece textContent almak iÃ§in
+  tmp.innerHTML = html; // sadece textContent almak için
   return (tmp.textContent || tmp.innerText || '').trim();
 }
 
 async function load(){
   await ensureConfig();
-  $('status').textContent = 'yÃ¼kleniyor...';
+  $('status').textContent = 'yükleniyor...';
 
   const assignee = $('assignee').value.trim();
   const mode = $('mode').value;
@@ -150,7 +152,7 @@ async function load(){
   try{
     res = await fetch('/api/workitems?' + params.toString());
   }catch{
-    $('status').textContent = 'API eriÅŸilemedi.';
+    $('status').textContent = 'API erişilemedi.';
     return;
   }
 
@@ -174,7 +176,7 @@ async function load(){
     const mm = forecastMismatchClass(wi);
     if(mm) tr.classList.add(mm); // late / early
 
-    // Due / ForecastDue geÃ§miÅŸ mi?
+    // Due / ForecastDue geçmiş mi?
     const isCommitOver = commitmentOverdue(wi);
     if(isCommitOver) tr.classList.add('commitOver');
 
@@ -213,23 +215,28 @@ async function openDetail(id){
   await ensureConfig();
 
   $('detail').classList.remove('hidden');
+
+  // default tab
+  setActiveTab('note');
+  const cmtStatus = $('cmt_status');
+  if(cmtStatus) cmtStatus.textContent = '';
   $('d_title').textContent = `#${id}`;
-  $('d_meta').textContent = 'yÃ¼kleniyor...';
+  $('d_meta').textContent = 'yükleniyor...';
   const descEl = $('d_desc');
-  if(descEl) descEl.textContent = 'yÃ¼kleniyor...';
+  if(descEl) descEl.textContent = 'yükleniyor...';
 
   let res;
   try{
     res = await fetch('/api/workitems/' + id);
   }catch{
-    $('d_meta').textContent = 'Detay API eriÅŸilemedi.';
-    if(descEl) descEl.textContent = '(aÃ§Ä±klama yok)';
+    $('d_meta').textContent = 'Detay API erişilemedi.';
+    if(descEl) descEl.textContent = '(açıklama yok)';
     return;
   }
 
   if(!res.ok){
     $('d_meta').textContent = `Detay API hata: ${res.status}`;
-    if(descEl) descEl.textContent = '(aÃ§Ä±klama yok)';
+    if(descEl) descEl.textContent = '(açıklama yok)';
     return;
   }
 
@@ -237,8 +244,8 @@ async function openDetail(id){
   const wi = data.workItem;
 
   if(!wi){
-    $('d_meta').textContent = 'Detay verisi boÅŸ dÃ¶ndÃ¼.';
-    if(descEl) descEl.textContent = '(aÃ§Ä±klama yok)';
+    $('d_meta').textContent = 'Detay verisi boş döndü.';
+    if(descEl) descEl.textContent = '(açıklama yok)';
     return;
   }
 
@@ -259,15 +266,32 @@ async function openDetail(id){
 
   if(descEl){
     const desc = htmlToText(data.descriptionHtml);
-    descEl.textContent = desc ? desc : '(aÃ§Ä±klama yok)';
+    descEl.textContent = desc ? desc : '(açıklama yok)';
   }
+}
+
+function setActiveTab(tab){
+  activeTab = tab;
+  const btnNote = $('tab_note');
+  const btnComment = $('tab_comment');
+  const panelNote = $('panel_note');
+  const panelComment = $('panel_comment');
+  if(!btnNote || !btnComment || !panelNote || !panelComment) return;
+
+  const isNote = tab === 'note';
+  btnNote.classList.toggle('active', isNote);
+  btnComment.classList.toggle('active', !isNote);
+  btnNote.setAttribute('aria-selected', isNote ? 'true' : 'false');
+  btnComment.setAttribute('aria-selected', isNote ? 'false' : 'true');
+  panelNote.classList.toggle('hidden', !isNote);
+  panelComment.classList.toggle('hidden', isNote);
 }
 
 function renderList(id, items){
   const el = $(id);
   el.innerHTML = '';
   if(!items || items.length === 0){
-    el.textContent = '(boÅŸ)';
+    el.textContent = '(boş)';
     return;
   }
   for(const t of items){
@@ -300,8 +324,62 @@ async function sendFeedback(){
   await load();
 }
 
+async function sendComment(){
+  if(!currentId) return;
+  const txtEl = $('cmt_text');
+  const statusEl = $('cmt_status');
+  const btn = $('sendComment');
+  if(!txtEl) return;
+
+  const raw = txtEl.value.trim();
+  if(!raw){
+    if(statusEl) statusEl.textContent = 'Boş yorum gönderilemez.';
+    return;
+  }
+
+  if(statusEl) statusEl.textContent = 'gönderiliyor...';
+  if(btn) btn.disabled = true;
+
+  // Server tarafında HTML'e sarıyoruz.
+  const payload = { text: raw };
+
+  let res;
+  try{
+    res = await fetch(`/api/workitems/${currentId}/comment`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+  }catch{
+    if(statusEl) statusEl.textContent = 'API erişilemedi.';
+    if(btn) btn.disabled = false;
+    return;
+  }
+
+  if(!res.ok){
+    const err = await res.json().catch(() => ({}));
+    const msg = err.message ?? err.error ?? `Hata (${res.status})`;
+    if(statusEl) statusEl.textContent = msg;
+    if(btn) btn.disabled = false;
+    return;
+  }
+
+  txtEl.value = '';
+  if(statusEl) statusEl.textContent = 'ok';
+  if(btn) btn.disabled = false;
+}
+
 $('refresh').addEventListener('click', load);
 $('close').addEventListener('click', () => $('detail').classList.add('hidden'));
 $('sendFb').addEventListener('click', sendFeedback);
+
+// tabs
+const tabNoteBtn = $('tab_note');
+const tabCommentBtn = $('tab_comment');
+if(tabNoteBtn) tabNoteBtn.addEventListener('click', () => setActiveTab('note'));
+if(tabCommentBtn) tabCommentBtn.addEventListener('click', () => setActiveTab('comment'));
+
+const sendCommentBtn = $('sendComment');
+if(sendCommentBtn) sendCommentBtn.addEventListener('click', sendComment);
 
 load();

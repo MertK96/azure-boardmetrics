@@ -45,6 +45,12 @@ tr.early:hover{background:#162a21}
 .cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
 .card{border:1px solid #223044;border-radius:14px;background:#0f1726;padding:12px}
 .cardTitle{font-weight:700;margin-bottom:10px}
+.tabRow{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.tab{background:#0b1220;border:1px solid #223044;color:#e6edf3;border-radius:999px;padding:7px 12px;font-size:12px;cursor:pointer}
+.tab.active{background:#1f6feb;border-color:#1f6feb}
+.tabPanel{margin-top:6px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.miniStatus{font-size:12px;color:#97a6b3}
 .list{margin-top:10px;max-height:220px;overflow:auto;border-top:1px solid #223044;padding-top:10px}
 .item{font-size:12px;color:#c9d1d9;padding:6px 0;border-bottom:1px dashed #223044}
 .hint{margin-top:10px;font-size:12px;color:#97a6b3}
@@ -75,3 +81,6 @@ tr.commitOver:hover{background:#321616}
 /* hücre uyarıları (satır renginden bağımsız daha net) */
 td.cellCommitOver{background:#3a1616}
 td.cellForecastOver{background:#2a2116}
+
+
+.build{margin-left:8px;font-size:12px;color:#6ea8ff;opacity:.9}
