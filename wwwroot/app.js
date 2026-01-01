@@ -418,6 +418,16 @@ async function sendComment(){
 
 /* -------------------- Code Review Ataması -------------------- */
 
+function extractEmailFromIdentityText(text){
+  if(!text) return '';
+  const t = String(text);
+  const m = t.match(/<([^>]+)>/);
+  if(m && m[1]) return m[1].trim();
+  // if it's already an email-like string
+  if(t.includes('@') && !t.includes(' ')) return t.trim();
+  return '';
+}
+
 function renderReviewRow(wi){
   const tr = document.createElement('tr');
 
@@ -449,8 +459,16 @@ function renderReviewRow(wi){
   tdAss.textContent = wi.assignedToDisplayName || wi.assignedToUniqueName || '';
   tr.appendChild(tdAss);
 
-  // Review Owner dropdown (Azure users)
+  // Current Review Owner (read-only)
   const tdOwner = document.createElement('td');
+  const roName = (wi.reviewOwnerDisplayName || '').trim();
+  const roMail = (wi.reviewOwnerUniqueName || '').trim();
+  if(roName && roMail && roName.toLowerCase() !== roMail.toLowerCase()) tdOwner.textContent = `${roName} <${roMail}>`;
+  else tdOwner.textContent = roName || roMail || '';
+  tr.appendChild(tdOwner);
+
+  // Select new Review Owner (Azure users)
+  const tdSelect = document.createElement('td');
   const sel = document.createElement('select');
   sel.className = 'reviewOwnerSelect';
 
@@ -470,15 +488,17 @@ function renderReviewRow(wi){
     sel.appendChild(o);
   });
 
-  // preselect current
-  const cur = (wi.reviewOwnerUniqueName || '').trim().toLowerCase();
+  // preselect current (try uniqueName first; if empty, parse from display text)
+  const curUnique = (wi.reviewOwnerUniqueName || '').trim();
+  const curFromText = extractEmailFromIdentityText(wi.reviewOwnerDisplayName || '');
+  const cur = (curUnique || curFromText || '').trim().toLowerCase();
   if(cur){
     const opt = Array.from(sel.options).find(o => (o.value || '').trim().toLowerCase() === cur);
     if(opt) sel.value = opt.value;
   }
 
-  tdOwner.appendChild(sel);
-  tr.appendChild(tdOwner);
+  tdSelect.appendChild(sel);
+  tr.appendChild(tdSelect);
 
   const tdState = document.createElement('td');
   tdState.textContent = wi.state || '';

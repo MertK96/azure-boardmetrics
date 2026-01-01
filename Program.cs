@@ -106,7 +106,7 @@ app.MapGet("/api/code-review/items", async (AzdoClient az, string? assignee, int
 
         AzdoIdentity? reviewOwner = null;
         if (!string.IsNullOrWhiteSpace(reviewOwnerRef))
-            reviewOwner = wi.GetIdentity(reviewOwnerRef!) ?? (wi.GetString(reviewOwnerRef!) is string s ? new AzdoIdentity(s, s) : null);
+            reviewOwner = wi.GetIdentity(reviewOwnerRef!);
 
         list.Add(new CodeReviewItemDto
         {

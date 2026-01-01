@@ -364,7 +364,24 @@ private async Task<string?> GetReviewOwnerFieldRefAsync(CancellationToken ct)
             if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(referenceName))
                 continue;
 
-            if (string.Equals(name.Trim(), displayName, StringComparison.OrdinalIgnoreCase))
+            var nm = name.Trim();
+            if (string.Equals(nm, displayName, StringComparison.OrdinalIgnoreCase))
+            {
+                _reviewOwnerFieldRef = referenceName.Trim();
+                return _reviewOwnerFieldRef;
+            }
+        }
+
+        // Fuzzy fallback: contains match (helps if the process renames slightly)
+        foreach (var f in value.EnumerateArray())
+        {
+            var name = f.TryGetProperty("name", out var n) ? n.GetString() : null;
+            var referenceName = f.TryGetProperty("referenceName", out var rn) ? rn.GetString() : null;
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(referenceName))
+                continue;
+
+            var nm = name.Trim();
+            if (nm.Contains(displayName, StringComparison.OrdinalIgnoreCase))
             {
                 _reviewOwnerFieldRef = referenceName.Trim();
                 return _reviewOwnerFieldRef;
@@ -619,12 +636,49 @@ public class AzdoWorkItem
     {
         if (!Fields.TryGetValue(field, out var v) || v is null) return null;
 
+        // Some identity fields (especially custom ones) may come back as a string like
+        // "Name Surname <mail@company.com>" or just "mail@company.com".
+        if (v is string s)
+        {
+            var parsed = ParseIdentityString(s);
+            if (parsed is not null) return parsed;
+
+            // As a fallback keep the raw string as display name.
+            if (!string.IsNullOrWhiteSpace(s))
+                return new AzdoIdentity(s.Trim(), null);
+
+            return null;
+        }
+
         if (v is JsonElement je && je.ValueKind == JsonValueKind.Object)
         {
             string? display = je.TryGetProperty("displayName", out var dn) ? dn.GetString() : null;
             string? unique = je.TryGetProperty("uniqueName", out var un) ? un.GetString() : null;
             return new AzdoIdentity(display, unique);
         }
+
+        return null;
+    }
+
+    private static AzdoIdentity? ParseIdentityString(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        var t = s.Trim();
+
+        // "Name <mail>"
+        var lt = t.LastIndexOf('<');
+        var gt = t.LastIndexOf('>');
+        if (lt >= 0 && gt > lt)
+        {
+            var name = t.Substring(0, lt).Trim();
+            var mail = t.Substring(lt + 1, gt - lt - 1).Trim();
+            if (!string.IsNullOrWhiteSpace(mail))
+                return new AzdoIdentity(string.IsNullOrWhiteSpace(name) ? mail : name, mail);
+        }
+
+        // plain email
+        if (t.Contains('@') && !t.Contains(' '))
+            return new AzdoIdentity(t, t);
 
         return null;
     }
