@@ -299,13 +299,14 @@ public async Task UpdateWorkItemAssignedToAsync(int id, string? assigneeUniqueNa
         throw new Exception("Project boş. AZDO_PROJECT/appsettings üzerinden proje adı gerekli.");
 
     // JSON Patch: set (or clear) System.AssignedTo
+    var isClear = string.IsNullOrWhiteSpace(assigneeUniqueName);
     object[] patch;
-    if (string.IsNullOrWhiteSpace(assigneeUniqueName))
+    if (isClear)
     {
-        // Clear field (Azure DevOps accepts null to clear identity fields)
+        // Clear field: Azure DevOps identity fields cannot be set to null; remove the field instead.
         patch = new object[]
         {
-            new { op = "add", path = "/fields/System.AssignedTo", value = (string?)null }
+            new { op = "remove", path = "/fields/System.AssignedTo" }
         };
     }
     else
@@ -325,6 +326,15 @@ public async Task UpdateWorkItemAssignedToAsync(int id, string? assigneeUniqueNa
     if (!res.IsSuccessStatusCode)
     {
         var body = await res.Content.ReadAsStringAsync(ct);
+
+        // Clearing AssignedTo may return 400 if the field is already missing; treat that as OK.
+        if (isClear && (int)res.StatusCode == 400)
+        {
+            var b = (body ?? "").ToLowerInvariant();
+            if (b.Contains("path") && b.Contains("does not exist"))
+                return;
+        }
+
         throw new Exception($"WI UpdateAssignedTo failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
     }
 }
