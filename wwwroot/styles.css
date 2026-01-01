@@ -16,7 +16,6 @@ button:hover{filter:brightness(1.05)}
 .chip-pool{background:#1a1220;border-color:#3a2948}
 .chip-late{background:#221a12;border-color:#4a3a1c}
 .chip-early{background:#12221a;border-color:#1c4a3a}
-.chip-overdue{background:#2a1212;border-color:#5a2424}
 
 .tableWrap{overflow:auto;border:1px solid #223044;border-radius:14px}
 table{border-collapse:collapse;width:100%;min-width:1200px}
@@ -37,17 +36,6 @@ tr.late:hover{background:#2a2116}
 
 tr.early{background:#12221a}
 tr.early:hover{background:#162a21}
-
-/* Due date uyarısı (Due <= Today) */
-tr.overdue{background:#2a1212}
-tr.overdue:hover{background:#321616}
-
-.linkRow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.btnSecondary{background:#0f1726;border:1px solid #223044;color:#e6edf3}
-.btnSecondary:hover{filter:brightness(1.08)}
-
-.embedWrap{margin-top:10px}
-.embedWrap iframe{width:100%;height:520px;border:1px solid #223044;border-radius:14px;background:#0b0f14}
 
 .detail{margin-top:14px;border:1px solid #223044;border-radius:14px;background:#0b1220;padding:14px}
 .hidden{display:none}
@@ -72,3 +60,18 @@ tr.overdue:hover{background:#321616}
   border-top:1px solid #223044;
   padding-top:10px;
 }
+
+
+/* Start→Due / Start→ForecastDue uyarıları */
+.chip-commitOver{background:#2a1212;border-color:#5a2424}
+.chip-forecastOver{background:#221a12;border-color:#4a3a1c}
+
+/* satır uyarıları */
+tr.forecastOver{background:#221a12}
+tr.forecastOver:hover{background:#2a2116}
+tr.commitOver{background:#2a1212}
+tr.commitOver:hover{background:#321616}
+
+/* hücre uyarıları (satır renginden bağımsız daha net) */
+td.cellCommitOver{background:#3a1616}
+td.cellForecastOver{background:#2a2116}

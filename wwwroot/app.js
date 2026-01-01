@@ -26,16 +26,20 @@ async function ensureConfig(){
 }
 
 function buildBoardUrl(workItemId){
-  // Beklenen format:
-  // https://dev.azure.com/Adisyo/adisyo-mill/_boards/board/t/Platform%20Team/Backlog%20items?workitem=XXX
-  const orgUrl = (azdoCfg?.organizationUrl || '').trim().replace(/\/+$/,'');
-  const project = (azdoCfg?.project || '').trim();
-  const team = (azdoCfg?.team || 'Platform Team').trim() || 'Platform Team';
+  // Ä°stenen format:
+  // https://dev.azure.com/Adisyo/adisyo-mill/_boards/board/t/Platform%20Team/Backlog%20items?workitem=17631
 
-  if(!orgUrl || !project) return '#';
+  const orgUrlRaw = (azdoCfg?.organizationUrl || '').trim();
+  const projectRaw = (azdoCfg?.project || '').trim();
+  const teamRaw = (azdoCfg?.team || '').trim();
+
+  const orgUrl = (orgUrlRaw || 'https://dev.azure.com/Adisyo').replace(/\/+$/,'');
+  const project = projectRaw || 'adisyo-mill';
+  const team = teamRaw || 'Platform Team';
 
   const projSeg = encodeURIComponent(project);
   const teamSeg = encodeURIComponent(team);
+
   return `${orgUrl}/${projSeg}/_boards/board/t/${teamSeg}/Backlog%20items?workitem=${encodeURIComponent(String(workItemId))}`;
 }
 
@@ -52,9 +56,21 @@ function dateKey(s){
   return d || '';
 }
 
-function cell(txt){
+function cell(txt, cls){
   const td = document.createElement('td');
+  if(cls) td.className = cls;
   td.textContent = txt ?? '';
+  return td;
+}
+
+function idCell(wi){
+  const td = document.createElement('td');
+  const a = document.createElement('a');
+  a.href = buildBoardUrl(wi.id);
+  a.target = '_blank';
+  a.rel = 'noreferrer';
+  a.textContent = String(wi.id);
+  td.appendChild(a);
   return td;
 }
 
@@ -71,8 +87,11 @@ function titleCell(wi){
   return td;
 }
 
-function forecastClass(wi){
-  // Start+Effort varsa ve Due ile ForecastDue uyuşmuyorsa renklendir
+/**
+ * Forecast vs Due mismatch (risk/early)
+ * Not: Start+Effort+Due+ForecastDue varsa anlamlÄ±.
+ */
+function forecastMismatchClass(wi){
   if(!wi.startDate) return '';
   if(wi.effort == null) return '';
   if(!wi.dueDate || !wi.forecastDueDate) return '';
@@ -82,30 +101,42 @@ function forecastClass(wi){
   if(!due || !fc) return '';
 
   if(due === fc) return '';
-
   return (fc > due) ? 'late' : 'early';
 }
 
-function overdueClass(wi){
-  // Uyarı: Due bugünün (local) tarihi veya öncesindeyse
-  if(!wi.dueDate) return '';
+/**
+ * Due geÃ§miÅŸ mi? (commitment uyarÄ±sÄ±)
+ * Ä°stek: Startâ†’Due ayrÄ± renk (pratikte Due <= Today olduÄŸunda belirginleÅŸir)
+ */
+function commitmentOverdue(wi){
+  if(!wi.dueDate) return false;
   const due = dateKey(wi.dueDate);
-  if(!due) return '';
-  const today = todayKey();
-  return (due <= today) ? 'overdue' : '';
+  if(!due) return false;
+  return due <= todayKey();
 }
 
-// Description HTML'i güvenli şekilde text'e çevir
+/**
+ * ForecastDue geÃ§miÅŸ mi? (forecast uyarÄ±sÄ±)
+ * Ä°stek: Startâ†’ForecastDue ayrÄ± renk (pratikte ForecastDue <= Today olduÄŸunda belirginleÅŸir)
+ */
+function forecastOverdue(wi){
+  if(!wi.forecastDueDate) return false;
+  const fc = dateKey(wi.forecastDueDate);
+  if(!fc) return false;
+  return fc <= todayKey();
+}
+
+// Description HTML'i gÃ¼venli ÅŸekilde text'e Ã§evir
 function htmlToText(html){
   if(!html) return '';
   const tmp = document.createElement('div');
-  tmp.innerHTML = html; // sadece textContent almak için
+  tmp.innerHTML = html; // sadece textContent almak iÃ§in
   return (tmp.textContent || tmp.innerText || '').trim();
 }
 
 async function load(){
   await ensureConfig();
-  $('status').textContent = 'yükleniyor...';
+  $('status').textContent = 'yÃ¼kleniyor...';
 
   const assignee = $('assignee').value.trim();
   const mode = $('mode').value;
@@ -118,8 +149,8 @@ async function load(){
   let res;
   try{
     res = await fetch('/api/workitems?' + params.toString());
-  }catch(e){
-    $('status').textContent = 'API erişilemedi.';
+  }catch{
+    $('status').textContent = 'API eriÅŸilemedi.';
     return;
   }
 
@@ -136,22 +167,36 @@ async function load(){
   for(const wi of data){
     const tr = document.createElement('tr');
 
-    const fcls = forecastClass(wi);
-    const ocls = overdueClass(wi);
+    // Pool
     if(wi.needsFeedback) tr.classList.add('pool');
-    if(fcls) tr.classList.add(fcls); // late / early
-    if(ocls) tr.classList.add(ocls);
 
-    tr.appendChild(cell(wi.id));
+    // Forecast vs Due mismatch
+    const mm = forecastMismatchClass(wi);
+    if(mm) tr.classList.add(mm); // late / early
+
+    // Due / ForecastDue geÃ§miÅŸ mi?
+    const isCommitOver = commitmentOverdue(wi);
+    if(isCommitOver) tr.classList.add('commitOver');
+
+    const isFcOver = forecastOverdue(wi);
+    if(isFcOver) tr.classList.add('forecastOver');
+
+    tr.appendChild(idCell(wi));
     tr.appendChild(titleCell(wi));
     tr.appendChild(cell(wi.assignedToUniqueName ?? wi.assignedToDisplayName ?? ''));
     tr.appendChild(cell(wi.state));
     tr.appendChild(cell(wi.effort ?? ''));
     tr.appendChild(cell(fmtDate(wi.startDate)));
-    tr.appendChild(cell(fmtDate(wi.dueDate)));
+
+    // Due cell
+    tr.appendChild(cell(fmtDate(wi.dueDate), isCommitOver ? 'cellCommitOver' : ''));
+
     tr.appendChild(cell(fmtDate(wi.doneDate)));
     tr.appendChild(cell(wi.expectedDays ?? ''));
-    tr.appendChild(cell(fmtDate(wi.forecastDueDate)));
+
+    // ForecastDue cell
+    tr.appendChild(cell(fmtDate(wi.forecastDueDate), isFcOver ? 'cellForecastOver' : ''));
+
     tr.appendChild(cell(wi.forecastVarianceDays ?? ''));
     tr.appendChild(cell(wi.slackDays ?? ''));
     tr.appendChild(cell(wi.needsFeedback ? (wi.poolReason ?? 'not var') : ''));
@@ -167,25 +212,24 @@ async function openDetail(id){
 
   await ensureConfig();
 
-  // paneli önce aç, kullanıcı görsün
   $('detail').classList.remove('hidden');
   $('d_title').textContent = `#${id}`;
-  $('d_meta').textContent = 'yükleniyor...';
+  $('d_meta').textContent = 'yÃ¼kleniyor...';
   const descEl = $('d_desc');
-  if(descEl) descEl.textContent = 'yükleniyor...';
+  if(descEl) descEl.textContent = 'yÃ¼kleniyor...';
 
   let res;
   try{
     res = await fetch('/api/workitems/' + id);
-  }catch(e){
-    $('d_meta').textContent = 'Detay API erişilemedi.';
-    if(descEl) descEl.textContent = '(açıklama yok)';
+  }catch{
+    $('d_meta').textContent = 'Detay API eriÅŸilemedi.';
+    if(descEl) descEl.textContent = '(aÃ§Ä±klama yok)';
     return;
   }
 
   if(!res.ok){
     $('d_meta').textContent = `Detay API hata: ${res.status}`;
-    if(descEl) descEl.textContent = '(açıklama yok)';
+    if(descEl) descEl.textContent = '(aÃ§Ä±klama yok)';
     return;
   }
 
@@ -193,8 +237,8 @@ async function openDetail(id){
   const wi = data.workItem;
 
   if(!wi){
-    $('d_meta').textContent = 'Detay verisi boş döndü.';
-    if(descEl) descEl.textContent = '(açıklama yok)';
+    $('d_meta').textContent = 'Detay verisi boÅŸ dÃ¶ndÃ¼.';
+    if(descEl) descEl.textContent = '(aÃ§Ä±klama yok)';
     return;
   }
 
@@ -209,20 +253,13 @@ async function openDetail(id){
     wi.poolReason ? `PoolReason:${wi.poolReason}` : ''
   ].filter(Boolean).join(' | ');
 
-  const boardUrl = buildBoardUrl(wi.id);
-  $('d_url').href = boardUrl;
-
-  const iframe = $('d_iframe');
-  if(iframe) iframe.src = '';
-  const wrap = $('d_embed_wrap');
-  if(wrap) wrap.classList.add('hidden');
+  $('d_url').href = buildBoardUrl(wi.id);
 
   renderList('fb_list', (data.feedback || []).map(f => `${fmtDate(f.createdAt)} - ${f.note}`));
 
-  // description (Program.cs: descriptionHtml)
   if(descEl){
     const desc = htmlToText(data.descriptionHtml);
-    descEl.textContent = desc ? desc : '(açıklama yok)';
+    descEl.textContent = desc ? desc : '(aÃ§Ä±klama yok)';
   }
 }
 
@@ -230,7 +267,7 @@ function renderList(id, items){
   const el = $(id);
   el.innerHTML = '';
   if(!items || items.length === 0){
-    el.textContent = '(boş)';
+    el.textContent = '(boÅŸ)';
     return;
   }
   for(const t of items){
@@ -266,17 +303,5 @@ async function sendFeedback(){
 $('refresh').addEventListener('click', load);
 $('close').addEventListener('click', () => $('detail').classList.add('hidden'));
 $('sendFb').addEventListener('click', sendFeedback);
-
-// Azure DevOps'u iframe ile dene
-$('d_open_embed').addEventListener('click', async () => {
-  if(!currentId) return;
-  await ensureConfig();
-  const url = buildBoardUrl(currentId);
-  const wrap = $('d_embed_wrap');
-  const iframe = $('d_iframe');
-  if(!wrap || !iframe) return;
-  iframe.src = url;
-  wrap.classList.remove('hidden');
-});
 
 load();
