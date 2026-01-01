@@ -47,6 +47,18 @@ async function ensureAzdoUsers(){
     if(res.ok) azdoUsers = await res.json();
   }catch(_){}
 
+
+  // fallback: graph users boş dönerse config'teki users listesini kullan
+  if(!azdoUsers || !Array.isArray(azdoUsers) || azdoUsers.length === 0){
+    try{
+      const r2 = await fetch('/api/assignees');
+      if(r2.ok){
+        const arr = await r2.json();
+        azdoUsers = (arr || []).map(x => ({ displayName: String(x||'').trim(), uniqueName: String(x||'').trim() }));
+      }
+    }catch(_){ }
+  }
+
   azdoUsers = (azdoUsers || [])
     .filter(x => x && (x.uniqueName || x.displayName))
     .map(x => ({
@@ -418,6 +430,15 @@ async function sendComment(){
 
 /* -------------------- Code Review Ataması -------------------- */
 
+
+function extractNameFromIdentityText(text){
+  if(!text) return '';
+  const t = String(text).trim();
+  const lt = t.indexOf('<');
+  if(lt > 0) return t.slice(0, lt).trim();
+  return t;
+}
+
 function extractEmailFromIdentityText(text){
   if(!text) return '';
   const t = String(text);
@@ -463,8 +484,8 @@ function renderReviewRow(wi){
   const tdOwner = document.createElement('td');
   const roName = (wi.reviewOwnerDisplayName || '').trim();
   const roMail = (wi.reviewOwnerUniqueName || '').trim();
-  if(roName && roMail && roName.toLowerCase() !== roMail.toLowerCase()) tdOwner.textContent = `${roName} <${roMail}>`;
-  else tdOwner.textContent = roName || roMail || '';
+  // UI: sadece isim göster (mail gizli). Name yoksa mail'i göster.
+  tdOwner.textContent = extractNameFromIdentityText(roName || roMail || '');
   tr.appendChild(tdOwner);
 
   // Select new Review Owner (Azure users)
