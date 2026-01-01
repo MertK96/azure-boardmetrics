@@ -55,6 +55,105 @@ app.MapGet("/api/assignees", (IOptions<AzdoOptions> opt) =>
     return Results.Ok(users);
 });
 
+/* -------------------- Code Review Ataması -------------------- */
+
+// Ready for Code Rewiew kolonundaki maddeleri getir
+app.MapGet("/api/code-review/items", async (AzdoClient az, string? assignee, int? top, CancellationToken ct) =>
+{
+    var take = Math.Clamp(top ?? 200, 1, 2000);
+    var col = string.IsNullOrWhiteSpace(az.Options.ReadyForCodeReviewColumn)
+        ? "Ready for Code Rewiew"
+        : az.Options.ReadyForCodeReviewColumn;
+
+    // Work items in this board column
+    var ids = await az.QueryWorkItemIdsByBoardColumnAsync(col, ct);
+    ids = ids.Take(take).ToList();
+
+    // Try to resolve Review Owner field reference name (for listing)
+    string? reviewOwnerRef = null;
+    try { reviewOwnerRef = await az.GetReviewOwnerFieldReferenceNameAsync(ct); } catch { /* ignore */ }
+
+    var extraFields = new List<string>();
+    if (!string.IsNullOrWhiteSpace(reviewOwnerRef))
+        extraFields.Add(reviewOwnerRef!);
+
+    var items = new List<AzdoWorkItem>();
+    foreach (var chunk in ids.Chunk(200))
+    {
+        var batch = await az.GetWorkItemsBatchAsync(chunk, ct, extraFields);
+        items.AddRange(batch);
+    }
+
+    var list = new List<CodeReviewItemDto>();
+
+    foreach (var wi in items)
+    {
+        var assigned = wi.GetIdentity("System.AssignedTo");
+        if (!string.IsNullOrWhiteSpace(assignee))
+        {
+            var a = assignee.Trim().ToLowerInvariant();
+            var u = (assigned?.UniqueName ?? "").Trim().ToLowerInvariant();
+            if (u != a) continue;
+        }
+
+        AzdoIdentity? reviewOwner = null;
+        if (!string.IsNullOrWhiteSpace(reviewOwnerRef))
+            reviewOwner = wi.GetIdentity(reviewOwnerRef!) ?? (wi.GetString(reviewOwnerRef!) is string s ? new AzdoIdentity(s, s) : null);
+
+        list.Add(new CodeReviewItemDto
+        {
+            Id = wi.Id,
+            Title = wi.GetString("System.Title"),
+            State = wi.GetString("System.State"),
+            BoardColumn = wi.GetString("System.BoardColumn"),
+            AssignedToDisplayName = assigned?.DisplayName,
+            AssignedToUniqueName = assigned?.UniqueName,
+            ReviewOwnerDisplayName = reviewOwner?.DisplayName,
+            ReviewOwnerUniqueName = reviewOwner?.UniqueName
+        });
+    }
+
+    // keep original order (ChangedDate desc) roughly by id list order
+    var order = ids.Select((id, idx) => new { id, idx }).ToDictionary(x => x.id, x => x.idx);
+    var ordered = list.OrderBy(x => order.TryGetValue(x.Id, out var ix) ? ix : int.MaxValue).ToList();
+
+    return Results.Ok(ordered);
+});
+
+// Bir maddeye Review Owner ata (Azure DevOps field update)
+app.MapPost("/api/code-review/{id:int}/assign", async (AzdoClient az, AppDbContext db, int id, ReviewAssignCreate dto, CancellationToken ct) =>
+{
+    var reviewer = (dto.Reviewer ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(reviewer))
+        return Results.BadRequest(new { message = "Reviewer boş olamaz." });
+
+    try
+    {
+        await az.AssignReviewOwnerAsync(id, reviewer, ct);
+
+        db.ReviewAssignments.Add(new ReviewAssignmentEntity
+        {
+            WorkItemId = id,
+            Reviewer = reviewer,
+            AssignedBy = "", // UI'da kullanıcı bilgisi yok
+            Note = (dto.Note ?? "").Trim(),
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new { ok = true });
+    }
+    catch (Exception ex)
+    {
+        var msg = ex.Message;
+        if (msg.Length > 500) msg = msg[..500];
+        return Results.Json(new { message = msg }, statusCode: 502);
+    }
+});
+
+
+
 app.MapGet("/api/workitems", async (AppDbContext db, string? assignee, string? flagged, int? top) =>
 {
     // SADECE In Progress
@@ -274,6 +373,24 @@ app.Run();
 public record FeedbackCreate(string? Note);
 public record CommentCreate(string? Text);
 public record ResolveDto(bool IsResolved);
+
+
+public record ReviewAssignCreate(string? Reviewer, string? Note);
+
+public sealed class CodeReviewItemDto
+{
+    public int Id { get; set; }
+    public string? Title { get; set; }
+    public string? State { get; set; }
+    public string? BoardColumn { get; set; }
+
+    public string? AssignedToDisplayName { get; set; }
+    public string? AssignedToUniqueName { get; set; }
+
+    public string? ReviewOwnerDisplayName { get; set; }
+    public string? ReviewOwnerUniqueName { get; set; }
+}
+
 
 public sealed class NoteRow
 {

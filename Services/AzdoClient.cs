@@ -13,6 +13,15 @@ public class AzdoOptions
     public string Pat { get; set; } = "";
     public string[] Users { get; set; } = Array.Empty<string>();
 
+    // Board column used for "Code Review Ataması" tab (typo kept intentionally)
+    public string ReadyForCodeReviewColumn { get; set; } = "Ready for Code Rewiew";
+
+    // Work item field used to store the reviewer/owner (display name as seen in UI)
+    public string ReviewOwnerFieldDisplayName { get; set; } = "Review Owner";
+
+    // If you know the field reference name (e.g. "Custom.ReviewOwner"), set it to skip discovery
+    public string? ReviewOwnerFieldReferenceName { get; set; } = null;
+
     public string EffortField { get; set; } = "Microsoft.VSTS.Scheduling.Effort";
     public string DueDateField { get; set; } = "Microsoft.VSTS.Scheduling.TargetDate";
     public string DescriptionField { get; set; } = "Custom.UserStoryProblem";
@@ -40,6 +49,8 @@ public class AzdoClient
 {
     private readonly HttpClient _http;
     private readonly AzdoOptions _opt;
+
+    private string? _reviewOwnerFieldRef;
 
     public AzdoClient(HttpClient http, IOptions<AzdoOptions> opt, IConfiguration cfg)
     {
@@ -106,73 +117,244 @@ ORDER BY [System.ChangedDate] DESC";
         return ids;
     }
 
-    public async Task<List<AzdoWorkItem>> GetWorkItemsBatchAsync(IEnumerable<int> ids, CancellationToken ct)
+
+
+    public async Task<List<int>> QueryWorkItemIdsByBoardColumnAsync(string boardColumn, CancellationToken ct)
     {
-        var idList = ids?.Distinct().Take(200).ToArray() ?? Array.Empty<int>();
-        if (idList.Length == 0) return new List<AzdoWorkItem>();
+        var col = EscapeWiql(boardColumn ?? "");
+        var proj = EscapeWiql(_opt.Project);
 
-        // NOT: System.BoardColumn / Lane gibi alanlar her projede yok -> 400 üretebiliyor.
-        // Güvenli field seti.
-        var fields = new List<string>
-        {
-            "System.Id",
-            "System.Title",
-            "System.WorkItemType",
-            "System.State",
-            "System.AssignedTo",
-            "System.CreatedDate",
-            "System.ChangedDate",
-            "System.IterationPath",
-            "System.Tags"
-        };
+        var wiql = $@"
+SELECT [System.Id]
+FROM WorkItems
+WHERE
+    [System.TeamProject] = '{proj}'
+    AND [System.BoardColumn] = '{col}'
+    AND [System.State] <> 'Removed'
+ORDER BY [System.ChangedDate] DESC";
 
-        if (!string.IsNullOrWhiteSpace(_opt.EffortField) && !fields.Contains(_opt.EffortField))
-            fields.Add(_opt.EffortField);
-
-        if (!string.IsNullOrWhiteSpace(_opt.DueDateField) && !fields.Contains(_opt.DueDateField))
-            fields.Add(_opt.DueDateField);
-
-        if (_opt.PriorityFields is { Length: > 0 })
-        {
-            foreach (var pf in _opt.PriorityFields)
-            {
-                if (!string.IsNullOrWhiteSpace(pf) && !fields.Contains(pf))
-                    fields.Add(pf);
-            }
-        }
-
-        var body = JsonSerializer.Serialize(new
-        {
-            ids = idList,
-            fields = fields.ToArray()
-        });
-
-        var path = $"{_opt.Project}/_apis/wit/workitemsbatch?api-version=7.1";
+        var path = $"{_opt.Project}/_apis/wit/wiql?api-version=7.1";
+        var payload = JsonSerializer.Serialize(new { query = wiql });
 
         using var res = await _http.PostAsync(
             path,
-            new StringContent(body, Encoding.UTF8, "application/json"),
+            new StringContent(payload, Encoding.UTF8, "application/json"),
             ct);
 
         if (!res.IsSuccessStatusCode)
         {
-            var err = await res.Content.ReadAsStringAsync(ct);
-            throw new HttpRequestException(
-                $"workitemsbatch failed. Status={(int)res.StatusCode} {res.ReasonPhrase}\n\nBody:\n{err}\n\nPayload:\n{body}");
+            var body = await res.Content.ReadAsStringAsync(ct);
+            throw new Exception($"WIQL(BoardColumn) failed: {(int)res.StatusCode} {res.ReasonPhrase} :: {body}");
         }
 
         using var s = await res.Content.ReadAsStreamAsync(ct);
         using var doc = await JsonDocument.ParseAsync(s, cancellationToken: ct);
 
-        var items = new List<AzdoWorkItem>();
-        if (doc.RootElement.TryGetProperty("value", out var value))
+        var ids = new List<int>();
+        if (doc.RootElement.TryGetProperty("workItems", out var wi) && wi.ValueKind == JsonValueKind.Array)
         {
-            foreach (var el in value.EnumerateArray())
-                items.Add(AzdoWorkItem.FromJson(el));
+            foreach (var el in wi.EnumerateArray())
+            {
+                if (el.TryGetProperty("id", out var idEl) && idEl.TryGetInt32(out var id))
+                    ids.Add(id);
+            }
         }
 
-        return items;
+        return ids;
     }
+
+    public async Task AddCommentAsync(int workItemId, string htmlText, CancellationToken ct)
+    {
+        // Official Work Item Comments API
+        // POST .../_apis/wit/workItems/{id}/comments?api-version=7.1-preview.4
+        var path = $"{_opt.Project}/_apis/wit/workItems/{workItemId}/comments?api-version=7.1-preview.4";
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            text = htmlText
+        });
+
+        using var res = await _http.PostAsync(
+            path,
+            new StringContent(payload, Encoding.UTF8, "application/json"),
+            ct);
+
+        if (!res.IsSuccessStatusCode)
+        {
+            var body = await res.Content.ReadAsStringAsync(ct);
+            throw new Exception($"AddComment failed: {(int)res.StatusCode} {res.ReasonPhrase} :: {body}");
+        }
+    }
+
+    public async Task AssignReviewOwnerAsync(int workItemId, string reviewerUniqueNameOrEmail, CancellationToken ct)
+    {
+        var fieldRef = await GetReviewOwnerFieldRefAsync(ct);
+        if (string.IsNullOrWhiteSpace(fieldRef))
+            throw new Exception("Review Owner field referenceName could not be resolved. Set Azdo:ReviewOwnerFieldReferenceName or Azdo:ReviewOwnerFieldDisplayName.");
+
+        var ops = new object[]
+        {
+            new { op = "add", path = $"/fields/{fieldRef}", value = reviewerUniqueNameOrEmail }
+        };
+
+        var path = $"{_opt.Project}/_apis/wit/workitems/{workItemId}?api-version=7.1";
+
+        using var req = new HttpRequestMessage(new HttpMethod("PATCH"), path);
+        req.Content = new StringContent(JsonSerializer.Serialize(ops), Encoding.UTF8, "application/json-patch+json");
+
+        using var res = await _http.SendAsync(req, ct);
+
+        if (!res.IsSuccessStatusCode)
+        {
+            var body = await res.Content.ReadAsStringAsync(ct);
+            throw new Exception($"AssignReviewOwner failed: {(int)res.StatusCode} {res.ReasonPhrase} :: {body}");
+        }
+    }
+
+    
+public Task<string?> GetReviewOwnerFieldReferenceNameAsync(CancellationToken ct)
+    => GetReviewOwnerFieldRefAsync(ct);
+
+private async Task<string?> GetReviewOwnerFieldRefAsync(CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(_opt.ReviewOwnerFieldReferenceName))
+            return _opt.ReviewOwnerFieldReferenceName;
+
+        if (!string.IsNullOrWhiteSpace(_reviewOwnerFieldRef))
+            return _reviewOwnerFieldRef;
+
+        var displayName = (_opt.ReviewOwnerFieldDisplayName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(displayName))
+            return null;
+
+        var path = $"{_opt.Project}/_apis/wit/fields?api-version=7.1";
+        using var res = await _http.GetAsync(path, ct);
+
+        if (!res.IsSuccessStatusCode)
+        {
+            var body = await res.Content.ReadAsStringAsync(ct);
+            throw new Exception($"ListFields failed: {(int)res.StatusCode} {res.ReasonPhrase} :: {body}");
+        }
+
+        using var s = await res.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(s, cancellationToken: ct);
+
+        if (!doc.RootElement.TryGetProperty("value", out var value) || value.ValueKind != JsonValueKind.Array)
+            return null;
+
+        foreach (var f in value.EnumerateArray())
+        {
+            var name = f.TryGetProperty("name", out var n) ? n.GetString() : null;
+            var referenceName = f.TryGetProperty("referenceName", out var rn) ? rn.GetString() : null;
+
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(referenceName))
+                continue;
+
+            if (string.Equals(name.Trim(), displayName, StringComparison.OrdinalIgnoreCase))
+            {
+                _reviewOwnerFieldRef = referenceName.Trim();
+                return _reviewOwnerFieldRef;
+            }
+        }
+
+        return null;
+    }
+    public async Task<List<AzdoWorkItem>> GetWorkItemsBatchAsync(IEnumerable<int> ids, CancellationToken ct, IEnumerable<string>? extraFields = null)
+{
+    var idList = ids?.Distinct().Take(200).ToArray() ?? Array.Empty<int>();
+    if (idList.Length == 0) return new List<AzdoWorkItem>();
+
+    // Base field set
+    var fields = new List<string>
+    {
+        "System.Id",
+        "System.Title",
+        "System.WorkItemType",
+        "System.State",
+        "System.AssignedTo",
+        "System.CreatedDate",
+        "System.ChangedDate",
+        "System.IterationPath",
+        "System.Tags",
+
+        // Board fields (may not exist in every org/process). We'll retry without them if server rejects.
+        "System.BoardColumn",
+        "System.BoardLane"
+    };
+
+    if (!string.IsNullOrWhiteSpace(_opt.EffortField) && !fields.Contains(_opt.EffortField))
+        fields.Add(_opt.EffortField);
+
+    if (!string.IsNullOrWhiteSpace(_opt.DueDateField) && !fields.Contains(_opt.DueDateField))
+        fields.Add(_opt.DueDateField);
+
+    if (_opt.PriorityFields is { Length: > 0 })
+    {
+        foreach (var pf in _opt.PriorityFields)
+        {
+            if (!string.IsNullOrWhiteSpace(pf) && !fields.Contains(pf))
+                fields.Add(pf);
+        }
+    }
+
+    if (extraFields is not null)
+    {
+        foreach (var ef in extraFields)
+        {
+            if (!string.IsNullOrWhiteSpace(ef) && !fields.Contains(ef))
+                fields.Add(ef);
+        }
+    }
+
+    // Try once with board fields; if server returns 400 due to unknown field, retry without them.
+    try
+    {
+        return await GetWorkItemsBatchInternalAsync(idList, fields, ct);
+    }
+    catch (HttpRequestException ex) when (ex.Data.Contains("StatusCode") && (int)ex.Data["StatusCode"]! == 400)
+    {
+        fields.Remove("System.BoardColumn");
+        fields.Remove("System.BoardLane");
+        return await GetWorkItemsBatchInternalAsync(idList, fields, ct);
+    }
+}
+
+private async Task<List<AzdoWorkItem>> GetWorkItemsBatchInternalAsync(int[] idList, List<string> fields, CancellationToken ct)
+{
+    var body = JsonSerializer.Serialize(new
+    {
+        ids = idList,
+        fields = fields.ToArray()
+    });
+
+    var path = $"{_opt.Project}/_apis/wit/workitemsbatch?api-version=7.1";
+
+    using var res = await _http.PostAsync(
+        path,
+        new StringContent(body, Encoding.UTF8, "application/json"),
+        ct);
+
+    if (!res.IsSuccessStatusCode)
+    {
+        var err = await res.Content.ReadAsStringAsync(ct);
+
+        var hre = new HttpRequestException($"workitemsbatch failed: {(int)res.StatusCode} {res.ReasonPhrase} :: {err}");
+        hre.Data["StatusCode"] = (int)res.StatusCode;
+        throw hre;
+    }
+
+    using var s = await res.Content.ReadAsStreamAsync(ct);
+    using var doc = await JsonDocument.ParseAsync(s, cancellationToken: ct);
+
+    var items = new List<AzdoWorkItem>();
+    if (doc.RootElement.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array)
+    {
+        foreach (var el in value.EnumerateArray())
+            items.Add(AzdoWorkItem.FromJson(el));
+    }
+
+    return items;
+}
 
     public async Task<List<AzdoRevision>> ListRevisionsAsync(int id, CancellationToken ct)
     {

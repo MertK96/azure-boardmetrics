@@ -3,6 +3,9 @@ const $ = (id) => document.getElementById(id);
 let currentId = null;
 let azdoCfg = null;
 
+let activeView = 'board'; // 'board' | 'review'
+let reviewUsersLoaded = false;
+
 let activeTab = 'note'; // 'note' | 'comment'
 
 function pad2(n){ return String(n).padStart(2,'0'); }
@@ -13,6 +16,53 @@ function ymdLocal(d){
 
 function todayKey(){
   return ymdLocal(new Date());
+}
+
+
+function setView(view){
+  activeView = view;
+
+  const btnBoard = $('viewTab_board');
+  const btnReview = $('viewTab_review');
+  const viewBoard = $('view_board');
+  const viewReview = $('view_review');
+
+  if(btnBoard) btnBoard.classList.toggle('active', view === 'board');
+  if(btnReview) btnReview.classList.toggle('active', view === 'review');
+
+  if(viewBoard) viewBoard.classList.toggle('hidden', view !== 'board');
+  if(viewReview) viewReview.classList.toggle('hidden', view !== 'review');
+
+  if(view === 'review'){
+    ensureReviewUsers().then(loadReviewItems);
+  }
+}
+
+async function ensureReviewUsers(){
+  if(reviewUsersLoaded) return;
+  const sel = $('review_reviewer');
+  if(!sel) return;
+
+  sel.innerHTML = '';
+  const optEmpty = document.createElement('option');
+  optEmpty.value = '';
+  optEmpty.textContent = '-- seç --';
+  sel.appendChild(optEmpty);
+
+  let users = [];
+  try{
+    const res = await fetch('/api/assignees');
+    if(res.ok) users = await res.json();
+  }catch(_){}
+
+  (users || []).forEach(u => {
+    const o = document.createElement('option');
+    o.value = u;
+    o.textContent = u;
+    sel.appendChild(o);
+  });
+
+  reviewUsersLoaded = true;
 }
 
 async function ensureConfig(){
@@ -369,9 +419,142 @@ async function sendComment(){
   if(btn) btn.disabled = false;
 }
 
+/* -------------------- Code Review Ataması -------------------- */
+
+function renderReviewRow(wi){
+  const tr = document.createElement('tr');
+
+  // ID (link)
+  const tdId = document.createElement('td');
+  const aId = document.createElement('a');
+  aId.href = buildBoardUrl(wi.id);
+  aId.target = '_blank';
+  aId.rel = 'noreferrer';
+  aId.textContent = wi.id;
+  tdId.appendChild(aId);
+  tr.appendChild(tdId);
+
+  // Title (open detail in same app)
+  const tdTitle = document.createElement('td');
+  const aTitle = document.createElement('a');
+  aTitle.href = '#';
+  aTitle.textContent = wi.title ?? '';
+  aTitle.addEventListener('click', async (e) => {
+    e.preventDefault();
+    // board view'daki detay paneli
+    setView('board');
+    await openDetail(wi.id);
+  });
+  tdTitle.appendChild(aTitle);
+  tr.appendChild(tdTitle);
+
+  const tdAss = document.createElement('td');
+  tdAss.textContent = wi.assignedToDisplayName || wi.assignedToUniqueName || '';
+  tr.appendChild(tdAss);
+
+  const tdOwner = document.createElement('td');
+  tdOwner.textContent = wi.reviewOwnerDisplayName || wi.reviewOwnerUniqueName || '';
+  tr.appendChild(tdOwner);
+
+  const tdState = document.createElement('td');
+  tdState.textContent = wi.state || '';
+  tr.appendChild(tdState);
+
+  const tdCol = document.createElement('td');
+  tdCol.textContent = wi.boardColumn || '';
+  tr.appendChild(tdCol);
+
+  const tdAct = document.createElement('td');
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'miniBtn';
+  btn.textContent = 'Ata';
+  btn.addEventListener('click', () => assignReviewOwner(wi.id));
+  tdAct.appendChild(btn);
+  tr.appendChild(tdAct);
+
+  return tr;
+}
+
+async function loadReviewItems(){
+  const status = $('review_status');
+  const tbody = $('tbl_review')?.querySelector('tbody');
+  if(!tbody) return;
+
+  const assignee = ($('review_assignee')?.value || '').trim();
+  const q = new URLSearchParams();
+  if(assignee) q.set('assignee', assignee);
+  q.set('top', '500');
+
+  if(status) status.textContent = 'yükleniyor...';
+
+  let list = [];
+  try{
+    const res = await fetch('/api/code-review/items?' + q.toString());
+    if(!res.ok){
+      const err = await res.json().catch(() => null);
+      if(status) status.textContent = err?.message || `hata: ${res.status}`;
+      tbody.innerHTML = '';
+      return;
+    }
+    list = await res.json();
+  }catch(ex){
+    if(status) status.textContent = ex?.message || 'hata';
+    tbody.innerHTML = '';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  (list || []).forEach(wi => tbody.appendChild(renderReviewRow(wi)));
+  if(status) status.textContent = `${(list || []).length} madde`;
+}
+
+async function assignReviewOwner(id){
+  const reviewer = ($('review_reviewer')?.value || '').trim();
+  const status = $('review_status');
+
+  if(!reviewer){
+    if(status) status.textContent = 'Reviewer seçmelisin.';
+    return;
+  }
+
+  if(status) status.textContent = `#${id} atanıyor...`;
+
+  try{
+    const res = await fetch(`/api/code-review/${id}/assign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviewer })
+    });
+
+    if(!res.ok){
+      const err = await res.json().catch(() => null);
+      if(status) status.textContent = err?.message || `hata: ${res.status}`;
+      return;
+    }
+
+    if(status) status.textContent = `#${id} -> ${reviewer} OK`;
+    await loadReviewItems();
+  }catch(ex){
+    if(status) status.textContent = ex?.message || 'hata';
+  }
+}
+
+
+
 $('refresh').addEventListener('click', load);
 $('close').addEventListener('click', () => $('detail').classList.add('hidden'));
 $('sendFb').addEventListener('click', sendFeedback);
+
+// view tabs
+const boardBtn = $('viewTab_board');
+const reviewBtn = $('viewTab_review');
+if(boardBtn) boardBtn.addEventListener('click', () => setView('board'));
+if(reviewBtn) reviewBtn.addEventListener('click', () => setView('review'));
+
+const reviewRefreshBtn = $('review_refresh');
+if(reviewRefreshBtn) reviewRefreshBtn.addEventListener('click', loadReviewItems);
+
 
 // tabs
 const tabNoteBtn = $('tab_note');
@@ -382,4 +565,5 @@ if(tabCommentBtn) tabCommentBtn.addEventListener('click', () => setActiveTab('co
 const sendCommentBtn = $('sendComment');
 if(sendCommentBtn) sendCommentBtn.addEventListener('click', sendComment);
 
+setView('board');
 load();

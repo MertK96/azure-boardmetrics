@@ -4,112 +4,158 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>AZDO Board Metrics MVP</title>
-  <link rel="stylesheet" href="/styles.css?v=20260101"/>
+  <link rel="stylesheet" href="/styles.css?v=20260101-review"/>
 </head>
 <body>
   <header>
     <div class="title">AZDO Board Metrics (MVP)</div>
-    <div class="sub">Sadece In Progress | Not (Pool) | Forecast uyumsuzluğu renklendirme <span class="build">build: 2026-01-01 comment-v2</span></div>
+    <div class="sub">Sadece In Progress | Not (Pool) | Forecast ...me <span class="build">build: 2026-01-01 review-assign-v1</span></div>
   </header>
 
   <main>
-    <section class="filters">
-      <label>
-        Assignee (uniqueName):
-        <input id="assignee" placeholder="a@company.com"/>
-      </label>
-
-      <label>
-        Gösterim:
-        <select id="mode">
-          <option value="all">Tümü</option>
-          <option value="pool">Pool (Not var)</option>
-        </select>
-      </label>
-
-      <button id="refresh">Yenile</button>
-      <span id="status"></span>
+    <section class="mainTabs">
+      <button id="viewTab_board" class="tabBtn active" type="button">Board</button>
+      <button id="viewTab_review" class="tabBtn" type="button">Code Review Ataması</button>
     </section>
 
-    <section class="legend">
-      <span class="chip chip-pool">Pool: Not girilmiş</span>
-      <span class="chip chip-late">Forecast &gt; Due: gecikme riski</span>
-      <span class="chip chip-early">Forecast &lt; Due: erken</span>
-      <span class="chip chip-commitOver">Start → Due geçmiş</span>
-      <span class="chip chip-forecastOver">Start → ForecastDue geçmiş</span>
-    </section>
+    <!-- -------------------- BOARD VIEW -------------------- -->
+    <div id="view_board">
+      <section class="filters">
+        <label>
+          Assignee (uniqueName):
+          <input id="assignee" placeholder="a@company.com"/>
+        </label>
 
-    <section class="tableWrap">
-      <table id="tbl">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Title</th>
-            <th>Assignee</th>
-            <th>State</th>
-            <th>Effort</th>
-            <th>Start</th>
-            <th>Due</th>
-            <th>Done</th>
-            <th>ExpDays</th>
-            <th>ForecastDue</th>
-            <th>ForecastVar</th>
-            <th>Slack</th>
-            <th>Pool</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </section>
+        <label>
+          Gösterim:
+          <select id="mode">
+            <option value="all">Tümü</option>
+            <option value="pool">Pool (Not var)</option>
+          </select>
+        </label>
 
-    <section id="detail" class="detail hidden">
-      <div class="detailHeader">
-        <div>
-          <div id="d_title" class="dTitle"></div>
-          <div id="d_meta" class="dMeta"></div>
+        <button id="refresh" type="button">Yenile</button>
+        <span id="status"></span>
+      </section>
+
+      <section class="legend">
+        <span class="chip chip-pool">Pool: Not girilmiş</span>
+        <span class="chip chip-late">Forecast &gt; Due: gecikme riski</span>
+        <span class="chip chip-early">Forecast &lt; Due: erken</span>
+        <span class="chip chip-overdue">Start → Due geçmiş</span>
+        <span class="chip chip-forecastOverdue">Start → ForecastDue geçmiş</span>
+      </section>
+
+      <section class="tableWrap">
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Title</th>
+              <th>Assignee</th>
+              <th>State</th>
+              <th>Effort</th>
+              <th>Start</th>
+              <th>Due</th>
+              <th>Done</th>
+              <th>ExpDays</th>
+              <th>ForecastDue</th>
+              <th>ForecastVar</th>
+              <th>Slack</th>
+              <th>Pool</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+
+      <section id="detail" class="detail hidden">
+        <div class="detailHeader">
+          <div>
+            <div id="d_title" class="dTitle"></div>
+            <div id="d_meta" class="dMeta"></div>
+          </div>
+          <button id="close" type="button">Kapat</button>
         </div>
-        <button id="close">Kapat</button>
-      </div>
 
-      <div class="cards">
-        <div class="card">
-          <div class="cardTitle">Not / Yorum</div>
+        <div class="cards">
+          <div class="card">
+            <div class="cardTitle">Not / Yorum</div>
 
-          <div class="tabRow" role="tablist" aria-label="Not-Yorum">
-            <button id="tab_note" type="button" class="tab active" role="tab" aria-selected="true">Not</button>
-            <button id="tab_comment" type="button" class="tab" role="tab" aria-selected="false">Yorum</button>
-          </div>
-
-          <div id="panel_note" class="tabPanel">
-            <textarea id="fb_note" rows="4" placeholder="Maddeyi etkileyen konu / engel / rework / context switch vb. not..."></textarea>
-            <button id="sendFb">Kaydet</button>
-            <div id="fb_list" class="list"></div>
-          </div>
-
-          <div id="panel_comment" class="tabPanel hidden">
-            <textarea id="cmt_text" rows="4" placeholder="Azure DevOps'a yorum olarak eklenecek metin..."></textarea>
-            <div class="row">
-              <button id="sendComment">Yorum Yap</button>
-              <span id="cmt_status" class="miniStatus"></span>
+            <div class="subTabs">
+              <button id="tab_note" class="subTab active" type="button">Not (Pool)</button>
+              <button id="tab_comment" class="subTab" type="button">Yorum</button>
             </div>
-            <div class="hint">Not: PAT yetkisi (vso.work_write) yoksa yorum ekleme 401/403 dönebilir.</div>
+
+            <div id="pane_note" class="pane">
+              <textarea id="fb_note" rows="4" placeholder="Maddeyi etkileyen konu / engel / rework / context switch vb. not..."></textarea>
+              <button id="sendFb" type="button">Kaydet</button>
+              <div id="fb_list" class="list"></div>
+            </div>
+
+            <div id="pane_comment" class="pane hidden">
+              <textarea id="comment_text" rows="4" placeholder="Azure DevOps work item yorumuna eklenecek metin..."></textarea>
+              <button id="sendComment" type="button">Yorum Yap</button>
+              <div class="hint">Yorum, Azure DevOps Discussion/Comments kısmına gider.</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="cardTitle">Açıklama</div>
+            <div id="d_desc" class="desc">(açıklama yok)</div>
+          </div>
+
+          <div class="card">
+            <div class="cardTitle">Ham Link</div>
+            <div class="linkRow">
+              <a id="d_url" target="_blank" rel="noreferrer">Azure DevOps'ta aç</a>
+            </div>
+            <div class="hint">Not: Bu ekran sadece okuma + not (pool) + yorum amaçlı.</div>
           </div>
         </div>
+      </section>
+    </div>
 
-        <div class="card">
-          <div class="cardTitle">Açıklama</div>
-          <div id="d_desc" class="desc">(açıklama yok)</div>
-        </div>
+    <!-- -------------------- CODE REVIEW ASSIGNMENT VIEW -------------------- -->
+    <div id="view_review" class="hidden">
+      <section class="filters">
+        <label>
+          Reviewer seç:
+          <select id="review_reviewer"></select>
+        </label>
 
-        <div class="card">
-          <div class="cardTitle">Ham Link</div>
-          <a id="d_url" target="_blank" rel="noreferrer">Azure DevOps'ta aç</a>
-          <div class="hint">Not: Bu ekran sadece okuma + not (pool) amaçlı.</div>
-        </div>
-      </div>
-    </section>
+        <label>
+          Assignee filtre (opsiyonel):
+          <input id="review_assignee" placeholder="a@company.com"/>
+        </label>
+
+        <button id="review_refresh" type="button">Yenile</button>
+        <span id="review_status"></span>
+      </section>
+
+      <section class="hint">
+        Bu liste <b>Ready for Code Rewiew</b> kolonundaki maddelerden gelir. Seçtiğin reviewer, ilgili maddenin <b>Review Owner</b> alanına yazılır.
+      </section>
+
+      <section class="tableWrap">
+        <table id="tbl_review">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Title</th>
+              <th>Assignee</th>
+              <th>Review Owner</th>
+              <th>State</th>
+              <th>Column</th>
+              <th>İşlem</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </div>
   </main>
 
-  <script src="/app.js?v=20260101"></script>
+  <script src="/app.js?v=20260101-review"></script>
 </body>
 </html>
