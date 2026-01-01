@@ -1,9 +1,9 @@
-**/bin/
-**/obj/
-publish/
+appsettings.json
+appsettings.*.json
 *.db
 *.db-wal
 *.db-shm
-appsettings.json
-appsettings.*.json
+bin/
+obj/
+publish/
 test_fields.ps1
