@@ -1154,23 +1154,19 @@ function initPerfView(){
     }
   }
 
-  // Users dropdown (multi-select)
-  renderPerfUsersDropdown();
+  // Users selector (multi-select list)
+  renderPerfUsersSelect();
 
-  const usersBtn = $('perf_users_btn');
-  const usersMenu = $('perf_users_menu');
-  const usersDd = $('perf_users_dd');
-
-  if(usersBtn && usersMenu){
-    usersBtn.addEventListener('click', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      usersMenu.classList.toggle('hidden');
+  const usersSel = $('perf_users');
+  if(usersSel){
+    usersSel.addEventListener('change', () => {
+      perfSelectedUsers = Array.from(usersSel.selectedOptions).map(o => o.value);
+      if(!perfActiveUser || !perfSelectedUsers.includes(perfActiveUser)){
+        perfActiveUser = perfSelectedUsers[0] || null;
+      }
+      loadPerf();
     });
   }
-  if(usersDd) usersDd.addEventListener('click', (e) => e.stopPropagation());
-  document.addEventListener('click', () => {
-    if(usersMenu && !usersMenu.classList.contains('hidden')) usersMenu.classList.add('hidden');
-  });
 
   const refreshBtn = $('perf_refresh');
   if(refreshBtn) refreshBtn.addEventListener('click', loadPerf);
@@ -1197,65 +1193,42 @@ function perfUserLabel(u){
   return at > 0 ? un.slice(0, at) : un;
 }
 
-function renderPerfUsersDropdown(){
-  const list = $('perf_users_list');
-  const btn = $('perf_users_btn');
-  if(!list || !btn) return;
+function renderPerfUsersSelect(){
+  const sel = $('perf_users');
+  if(!sel) return;
 
-  list.innerHTML = '';
+  sel.innerHTML = '';
 
   const users = azdoUsers || [];
-  if(users.length === 0){
-    btn.textContent = 'Users';
-    return;
-  }
+  if(users.length === 0) return;
 
   // default: select first user
   if(!perfSelectedUsers || perfSelectedUsers.length === 0){
     const first = users[0];
     const key = (first.uniqueName || first.displayName || '').trim();
-    if(key) perfSelectedUsers = [key];
-    perfActiveUser = key;
+    if(key){
+      perfSelectedUsers = [key];
+      perfActiveUser = key;
+    }
   }
 
-  // rebuild list
   for(const u of users){
     const key = (u.uniqueName || u.displayName || '').trim();
     if(!key) continue;
 
-    const row = document.createElement('label');
-    row.className = 'tagItem';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.checked = perfSelectedUsers.includes(key);
-    cb.addEventListener('change', () => {
-      if(cb.checked){
-        if(!perfSelectedUsers.includes(key)) perfSelectedUsers.push(key);
-        if(!perfActiveUser) perfActiveUser = key;
-      }else{
-        perfSelectedUsers = perfSelectedUsers.filter(x => x !== key);
-        if(perfActiveUser === key) perfActiveUser = perfSelectedUsers[0] || null;
-      }
-      updatePerfUsersButton();
-      loadPerf();
-    });
-
-    const sp = document.createElement('span');
-    sp.textContent = perfUserLabel(u);
-
-    row.appendChild(cb);
-    row.appendChild(sp);
-    list.appendChild(row);
+    const op = document.createElement('option');
+    op.value = key;
+    op.textContent = perfUserLabel(u);
+    op.selected = perfSelectedUsers.includes(key);
+    sel.appendChild(op);
   }
 
-  updatePerfUsersButton();
-}
-
-function updatePerfUsersButton(){
-  const btn = $('perf_users_btn');
-  if(!btn) return;
-  const cnt = (perfSelectedUsers || []).length;
-  btn.textContent = cnt > 0 ? `Users (${cnt})` : 'Users';
+  // ensure at least 1 selected
+  if(sel.selectedOptions.length === 0 && sel.options.length > 0){
+    sel.options[0].selected = true;
+    perfSelectedUsers = [sel.options[0].value];
+    perfActiveUser = sel.options[0].value;
+  }
 }
 
 async function loadPerf(){
@@ -1389,6 +1362,7 @@ async function loadPerfDone(){
   }
 
   renderPerfChart();
+  renderPerfMetrics();
   renderPerfDoneTable();
 }
 
@@ -1413,6 +1387,54 @@ function renderPerfDoneTable(){
 
     tbody.appendChild(tr);
   }
+}
+
+function renderPerfMetrics(){
+  const el = $('perf_metrics');
+  if(!el) return;
+
+  const items = perfDoneItems || [];
+  const candles = perfCandles || [];
+
+  const totalEff = items.reduce((s, it) => s + (Number(it.effort) || 0), 0);
+  const cnt = items.length;
+  const avgEff = cnt ? (totalEff / cnt) : 0;
+
+  let daysWith = 0;
+  let maxClose = 0;
+  let maxDate = '';
+  for(const c of candles){
+    const close = Number(c.close) || 0;
+    if((c.items || []).length > 0) daysWith++;
+    if(close >= maxClose){
+      maxClose = close;
+      maxDate = c.date || '';
+    }
+  }
+
+  const n2 = (v) => {
+    const x = Math.round((Number(v) || 0) * 100) / 100;
+    return x.toFixed(2).replace(/\.00$/, '');
+  };
+
+  el.innerHTML = `
+    <div class="metric">
+      <div class="mLabel">Done (adet)</div>
+      <div class="mVal">${cnt}</div>
+    </div>
+    <div class="metric">
+      <div class="mLabel">Toplam Effort</div>
+      <div class="mVal">${n2(totalEff)}</div>
+    </div>
+    <div class="metric">
+      <div class="mLabel">Ortalama Effort / Item</div>
+      <div class="mVal">${n2(avgEff)}</div>
+    </div>
+    <div class="metric">
+      <div class="mLabel">En yüksek gün (Close)</div>
+      <div class="mVal">${n2(maxClose)}${maxDate ? ' • ' + maxDate : ''}</div>
+    </div>
+  `;
 }
 
 function perfHideTip(){

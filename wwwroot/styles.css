@@ -161,6 +161,18 @@ td.cellForecastOver{background:#2a2116}
 
 
 /* Kişisel Bazlı Performans */
+
+.perfGrid{display:grid;grid-template-columns:minmax(520px, 1fr) 420px;gap:14px;align-items:start}
+@media (max-width: 1100px){
+  .perfGrid{grid-template-columns:1fr}
+  .perfRight{position:static}
+}
+.perfLeft{min-width:0}
+.perfRight{position:sticky;top:84px;align-self:start}
+
+.perfUsers{display:flex;flex-direction:column;gap:6px}
+#perf_users{min-width:260px;max-width:360px;min-height:140px}
+
 .perfFilters .filterLeft{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
 .perfFilters select{min-width:130px}
 #perf_status{font-size:12px;color:#97a6b3}
@@ -168,10 +180,16 @@ td.cellForecastOver{background:#2a2116}
 #tbl_perf tbody tr:hover{background:rgba(255,255,255,.03)}
 #tbl_perf tbody tr.active{outline:1px solid #1f6feb;background:rgba(31,111,235,.10)}
 
-.perfChartWrap{margin-top:12px}
+.perfChartWrap{margin-top:0}
 .chartCard{border:1px solid #223044;border-radius:14px;background:#0b1220;padding:12px}
 .chartTitle{font-weight:700;margin-bottom:8px;color:#e6edf3}
 .chartCanvasWrap{position:relative;overflow:hidden;border:1px solid #223044;border-radius:12px;background:#0f1726}
-.chartCanvasWrap canvas{display:block;width:100%;height:auto}
+.chartCanvasWrap canvas{display:block;width:100%;height:260px}
 .tooltip{position:absolute;left:10px;top:10px;max-width:520px;background:#0b1220;border:1px solid #223044;border-radius:12px;padding:10px;font-size:12px;color:#c9d1d9;box-shadow:0 10px 30px rgba(0,0,0,.35);pointer-events:none;white-space:pre-wrap}
 .tooltip.hidden{display:none}
+
+
+.perfMetrics{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:10px 0 12px}
+.perfMetrics .metric{border:1px solid #223044;border-radius:12px;padding:8px;background:#0f1726}
+.perfMetrics .mLabel{font-size:11px;color:#97a6b3}
+.perfMetrics .mVal{font-size:14px;font-weight:700;color:#e6edf3;margin-top:2px}
