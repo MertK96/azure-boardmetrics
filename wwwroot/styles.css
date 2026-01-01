@@ -1,0 +1,62 @@
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#0b0f14;color:#e6edf3;}
+header{padding:18px 22px;border-bottom:1px solid #223044;background:#0b1220;position:sticky;top:0}
+.title{font-size:18px;font-weight:700}
+.sub{font-size:12px;color:#97a6b3;margin-top:4px}
+main{padding:18px 22px}
+.filters{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px}
+label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#97a6b3}
+input,select,textarea{background:#0f1726;color:#e6edf3;border:1px solid #223044;border-radius:10px;padding:8px 10px;min-width:220px}
+textarea{min-width:520px}
+button{background:#1f6feb;color:white;border:none;border-radius:10px;padding:9px 14px;cursor:pointer}
+button:hover{filter:brightness(1.05)}
+#status{font-size:12px;color:#97a6b3;margin-left:auto}
+
+.legend{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.chip{font-size:12px;border:1px solid #223044;border-radius:999px;padding:6px 10px;color:#c9d1d9;background:#0f1726}
+.chip-pool{background:#1a1220;border-color:#3a2948}
+.chip-late{background:#221a12;border-color:#4a3a1c}
+.chip-early{background:#12221a;border-color:#1c4a3a}
+
+.tableWrap{overflow:auto;border:1px solid #223044;border-radius:14px}
+table{border-collapse:collapse;width:100%;min-width:1200px}
+th,td{border-bottom:1px solid #223044;padding:10px 10px;font-size:12px;white-space:nowrap}
+th{position:sticky;top:0;background:#0f1726;text-align:left;color:#97a6b3}
+tr:hover{background:#0f1726}
+
+a{color:#58a6ff;text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* Pool */
+tr.pool{background:#1a1220}
+tr.pool:hover{background:#20172a}
+
+/* Forecast mismatch (start+effort var, forecast != due) */
+tr.late{background:#221a12}
+tr.late:hover{background:#2a2116}
+
+tr.early{background:#12221a}
+tr.early:hover{background:#162a21}
+
+.detail{margin-top:14px;border:1px solid #223044;border-radius:14px;background:#0b1220;padding:14px}
+.hidden{display:none}
+.detailHeader{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.dTitle{font-weight:700}
+.dMeta{margin-top:6px;font-size:12px;color:#97a6b3;line-height:1.4}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.card{border:1px solid #223044;border-radius:14px;background:#0f1726;padding:12px}
+.cardTitle{font-weight:700;margin-bottom:10px}
+.list{margin-top:10px;max-height:220px;overflow:auto;border-top:1px solid #223044;padding-top:10px}
+.item{font-size:12px;color:#c9d1d9;padding:6px 0;border-bottom:1px dashed #223044}
+.hint{margin-top:10px;font-size:12px;color:#97a6b3}
+
+/* Description (System.Description) */
+.desc{
+  font-size:12px;
+  color:#c9d1d9;
+  white-space:pre-wrap;
+  line-height:1.5;
+  max-height:260px;
+  overflow:auto;
+  border-top:1px solid #223044;
+  padding-top:10px;
+}

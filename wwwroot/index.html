@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>AZDO Board Metrics MVP</title>
+  <link rel="stylesheet" href="/styles.css"/>
+</head>
+<body>
+  <header>
+    <div class="title">AZDO Board Metrics (MVP)</div>
+    <div class="sub">Sadece In Progress | Not (Pool) | Forecast uyumsuzluğu renklendirme</div>
+  </header>
+
+  <main>
+    <section class="filters">
+      <label>
+        Assignee (uniqueName):
+        <input id="assignee" placeholder="a@company.com"/>
+      </label>
+
+      <label>
+        Gösterim:
+        <select id="mode">
+          <option value="all">Tümü</option>
+          <option value="pool">Pool (Not var)</option>
+        </select>
+      </label>
+
+      <button id="refresh">Yenile</button>
+      <span id="status"></span>
+    </section>
+
+    <section class="legend">
+      <span class="chip chip-pool">Pool: Not girilmiş</span>
+      <span class="chip chip-late">Forecast &gt; Due: gecikme riski</span>
+      <span class="chip chip-early">Forecast &lt; Due: erken</span>
+    </section>
+
+    <section class="tableWrap">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Assignee</th>
+            <th>State</th>
+            <th>Effort</th>
+            <th>Start</th>
+            <th>Due</th>
+            <th>Done</th>
+            <th>ExpDays</th>
+            <th>ForecastDue</th>
+            <th>ForecastVar</th>
+            <th>Slack</th>
+            <th>Pool</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section id="detail" class="detail hidden">
+      <div class="detailHeader">
+        <div>
+          <div id="d_title" class="dTitle"></div>
+          <div id="d_meta" class="dMeta"></div>
+        </div>
+        <button id="close">Kapat</button>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <div class="cardTitle">Not (Pool)</div>
+          <textarea id="fb_note" rows="4" placeholder="Maddeyi etkileyen konu / engel / rework / context switch vb. not..."></textarea>
+          <button id="sendFb">Kaydet</button>
+          <div id="fb_list" class="list"></div>
+        </div>
+
+        <div class="card">
+          <div class="cardTitle">Açıklama</div>
+          <div id="d_desc" class="desc">(açıklama yok)</div>
+        </div>
+
+        <div class="card">
+          <div class="cardTitle">Ham Link</div>
+          <a id="d_url" target="_blank" rel="noreferrer">Azure DevOps'ta aç</a>
+          <div class="hint">Not: Bu ekran sadece okuma + not (pool) amaçlı.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
