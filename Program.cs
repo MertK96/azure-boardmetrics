@@ -171,22 +171,28 @@ app.MapGet("/api/assignments/items", async (AzdoClient az, int? top, Cancellatio
 {
     static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
 
+    try
+    {
+
     var take = Math.Clamp(top ?? 400, 1, 2000);
-    var proj = EscapeWiql(az.Options.Project ?? "");
+    var projRaw = (az.Options.Project ?? "").Trim();
+    var proj = EscapeWiql(projRaw);
+    var projectClause = string.IsNullOrWhiteSpace(projRaw)
+        ? "" // project empty => query across org scope
+        : $"    [System.TeamProject] = '{proj}'\n    AND ";
 
     // Only:
-    // - Bug / Product Backlog Item with State=Approved
-    // - User Story with State=New
+    // - Bug / Product Backlog Item with State=Approved (or TR equivalents)
+    // - User Story with State=New (or TR equivalents)
     var wiql = $@"
 SELECT [System.Id]
 FROM WorkItems
 WHERE
-    [System.TeamProject] = '{proj}'
-    AND [System.State] <> 'Removed'
+{projectClause}    [System.State] <> 'Removed'
     AND (
-        ([System.WorkItemType] IN ('Bug','Product Backlog Item') AND [System.State] = 'Approved')
+        ([System.WorkItemType] IN ('Bug','Product Backlog Item') AND [System.State] IN ('Approved','Onaylandı','Onaylandi'))
         OR
-        ([System.WorkItemType] = 'User Story' AND [System.State] = 'New')
+        ([System.WorkItemType] = 'User Story' AND [System.State] IN ('New','Yeni'))
     )
 ORDER BY [System.ChangedDate] DESC";
 
@@ -212,13 +218,26 @@ ORDER BY [System.ChangedDate] DESC";
         var type = wi.GetString("System.WorkItemType") ?? "";
         var state = wi.GetString("System.State") ?? "";
 
-        // Priority (for columns) - usually 1..4
+        // Priority (for columns)
         int? priority = null;
         var priVal = wi.GetDouble("Microsoft.VSTS.Common.Priority");
         if (priVal is not null)
         {
             var p = (int)Math.Round(priVal.Value);
             priority = p;
+        }
+
+        // Some processes don't set Priority on PBIs; keep them visible by defaulting to 4.
+        if (priority is null
+            && type.Equals("Product Backlog Item", StringComparison.OrdinalIgnoreCase))
+        {
+            priority = 4;
+        }
+
+        if (priority is not null)
+        {
+            if (priority < 1) priority = 1;
+            if (priority > 4) priority = 4;
         }
 
         // Relevance: prefer StackRank/BacklogPriority, fallback to Priority
@@ -234,17 +253,26 @@ ORDER BY [System.ChangedDate] DESC";
         var tagsRaw = wi.GetString("System.Tags") ?? "";
         var tags = tagsRaw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        // Filter: Bug/PBI must have priority 1..4 to be placed into a column
+        // Filter: Bug/PBI must land into a column (1..4)
+        static bool IsApprovedState(string s)
+            => s.Equals("Approved", StringComparison.OrdinalIgnoreCase)
+               || s.Equals("Onaylandı", StringComparison.OrdinalIgnoreCase)
+               || s.Equals("Onaylandi", StringComparison.OrdinalIgnoreCase);
+
+        static bool IsNewState(string s)
+            => s.Equals("New", StringComparison.OrdinalIgnoreCase)
+               || s.Equals("Yeni", StringComparison.OrdinalIgnoreCase);
+
         if (type.Equals("Bug", StringComparison.OrdinalIgnoreCase)
             || type.Equals("Product Backlog Item", StringComparison.OrdinalIgnoreCase))
         {
             if (priority is null || priority < 1 || priority > 4) continue;
-            if (!state.Equals("Approved", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!IsApprovedState(state)) continue;
         }
 
         if (type.Equals("User Story", StringComparison.OrdinalIgnoreCase))
         {
-            if (!state.Equals("New", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!IsNewState(state)) continue;
         }
 
         var assigned = wi.GetIdentity("System.AssignedTo");
@@ -267,6 +295,13 @@ ORDER BY [System.ChangedDate] DESC";
     }
 
     return Results.Ok(list);
+    }
+    catch (Exception ex)
+    {
+        var msg = ex.Message;
+        if (msg.Length > 1200) msg = msg[..1200];
+        return Results.Json(new { message = msg }, statusCode: 502);
+    }
 });
 
 app.MapGet("/api/workitems", async (AppDbContext db, string? assignee, string? flagged, int? top) =>

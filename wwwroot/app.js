@@ -7,7 +7,7 @@ let activeView = 'board'; // 'board' | 'review' | 'assign'
 
 let assignItems = [];
 let assignLoaded = false;
-let assignColumnSort = { 1: 'default', 2: 'default', 3: 'default', 4: 'default' };
+let assignColumnSort = { 0: 'default', 1: 'default', 2: 'default', 3: 'default', 4: 'default' };
 let azdoUsersLoaded = false;
 let azdoUsers = [];
 
@@ -644,7 +644,7 @@ function parseAssigneeLabel(item){
 }
 
 function getSelectedTags(){
-  const box = $('assign_tags');
+  const box = $('assign_tags_list');
   if(!box) return [];
   const checks = box.querySelectorAll('input[type="checkbox"]');
   const tags = [];
@@ -652,6 +652,18 @@ function getSelectedTags(){
     if(c.checked) tags.push(String(c.value));
   }
   return tags;
+}
+
+function getTagMode(){
+  const checked = document.querySelector('input[name="assign_tag_mode"]:checked');
+  return (checked?.value || 'or').toLowerCase();
+}
+
+function updateTagButton(){
+  const btn = $('assign_tags_btn');
+  if(!btn) return;
+  const cnt = getSelectedTags().length;
+  btn.textContent = cnt > 0 ? `Tags (${cnt})` : 'Tags';
 }
 
 function itemHasTag(item, tag){
@@ -674,6 +686,15 @@ function itemPassTags(item, selectedTags, mode){
     if(itemHasTag(item, t)) return true;
   }
   return false;
+}
+
+function itemPassType(item, sel){
+  const s = (sel || '').trim().toLowerCase();
+  if(!s) return true;
+  const t = String(item.workItemType || '').trim().toLowerCase();
+  if(s === 'bug') return t === 'bug';
+  if(s === 'backlog') return t === 'product backlog item';
+  return true;
 }
 
 function itemPassAssignee(item, sel){
@@ -735,9 +756,12 @@ function escapeHtml(s){
 
 function createAssignCard(item){
   const div = document.createElement('div');
-  div.className = 'aCard';
+  const typeRaw = (item.workItemType || '').trim();
+  const type = typeRaw.toLowerCase();
+  const cls = (type === 'bug') ? 'bug' : (type === 'product backlog item') ? 'backlog' : (type === 'user story') ? 'story' : '';
+  div.className = `aCard ${cls}`.trim();
 
-  const type = (item.workItemType || '').trim();
+  const typeLabel = typeRaw;
   const title = (item.title || '').trim();
   const state = (item.state || '').trim();
   const assignee = parseAssigneeLabel(item);
@@ -746,7 +770,7 @@ function createAssignCard(item){
   div.innerHTML = `
     <div class="aTop">
       <a class="aId" href="${buildBoardUrl(item.id)}" target="_blank" rel="noreferrer">#${item.id}</a>
-      <div class="aType">${escapeHtml(type)}</div>
+      <div class="aType">${escapeHtml(typeLabel)}</div>
     </div>
     <div class="aTitle">${escapeHtml(title)}</div>
     <div class="aMeta">
@@ -778,7 +802,7 @@ function updateColumnSortButtons(){
 
 function renderAssignable(){
   const status = $('assign_status');
-  const storiesBox = $('assign_stories');
+  const storiesBox = $('assign_col_story');
   const col1 = $('assign_col_p1');
   const col2 = $('assign_col_p2');
   const col3 = $('assign_col_p3');
@@ -787,13 +811,16 @@ function renderAssignable(){
   if(!storiesBox || !col1 || !col2 || !col3 || !col4) return;
 
   const assSel = $('assign_assignee')?.value || '';
+  const typeSel = $('assign_type')?.value || '';
   const sortBy = $('assign_sortBy')?.value || 'changed';
   const sortOrder = $('assign_sortOrder')?.value || 'desc';
-  const tagMode = $('assign_tagMode')?.value || 'or';
+  const tagMode = getTagMode();
   const selectedTags = getSelectedTags();
 
   const filtered = (assignItems || []).filter(x => {
-    return itemPassAssignee(x, assSel) && itemPassTags(x, selectedTags, tagMode);
+    const isStory = String(x.workItemType || '').toLowerCase() === 'user story';
+    const typeOk = isStory ? true : itemPassType(x, typeSel);
+    return typeOk && itemPassAssignee(x, assSel) && itemPassTags(x, selectedTags, tagMode);
   });
 
   const stories = filtered.filter(x => String(x.workItemType || '').toLowerCase() === 'user story');
@@ -803,18 +830,7 @@ function renderAssignable(){
   const sortedOthers = sortByKey(others, sortBy, sortOrder);
 
   storiesBox.innerHTML = '';
-  for(const it of sortedStories){
-    storiesBox.appendChild(createAssignCard(it));
-  }
-
-  // group by priority
-  const byP = {1: [], 2: [], 3: [], 4: []};
-  for(const it of sortedOthers){
-    const p = Number(it.priority || 0);
-    if(byP[p]) byP[p].push(it);
-  }
-
-  // per-column override
+  // story column has its own per-column override
   function applyColSort(arr, p){
     const mode = assignColumnSort[p] || 'default';
     if(mode === 'oldest'){
@@ -823,7 +839,19 @@ function renderAssignable(){
     if(mode === 'newest'){
       return arr.slice().sort((a,b) => (+new Date(b.createdDate) - +new Date(a.createdDate)) || (a.orderIndex - b.orderIndex));
     }
-    return arr; // keep global sort
+    return arr;
+  }
+
+  const storyItems = applyColSort(sortedStories, 0);
+  for(const it of storyItems){
+    storiesBox.appendChild(createAssignCard(it));
+  }
+
+  // group by priority
+  const byP = {1: [], 2: [], 3: [], 4: []};
+  for(const it of sortedOthers){
+    const p = Number(it.priority || 0);
+    if(byP[p]) byP[p].push(it);
   }
 
   const cols = {1: col1, 2: col2, 3: col3, 4: col4};
@@ -846,8 +874,10 @@ function renderAssignable(){
   updateColumnSortButtons();
 
   if(status){
-    status.textContent = `Stories: ${sortedStories.length} | P1:${byP[1].length} P2:${byP[2].length} P3:${byP[3].length} P4:${byP[4].length}`;
+    status.textContent = `Stories:${sortedStories.length} | Bug/PBI -> P1:${byP[1].length} P2:${byP[2].length} P3:${byP[3].length} P4:${byP[4].length}`;
   }
+
+  updateTagButton();
 }
 
 function fillAssignFilters(items){
@@ -887,7 +917,7 @@ function fillAssignFilters(items){
   }
 
   // Tags
-  const box = $('assign_tags');
+  const box = $('assign_tags_list');
   if(box){
     const selected = new Set(getSelectedTags());
     const tags = new Set();
@@ -916,6 +946,8 @@ function fillAssignFilters(items){
     box.querySelectorAll('input[type="checkbox"]').forEach(ch => {
       ch.addEventListener('change', renderAssignable);
     });
+
+    updateTagButton();
   }
 }
 
@@ -932,7 +964,8 @@ async function loadAssignableItems(){
   }
 
   if(!res.ok){
-    if(status) status.textContent = `API hata: ${res.status}`;
+    const err = await res.json().catch(() => null);
+    if(status) status.textContent = err?.message || `API hata: ${res.status}`;
     return;
   }
 
@@ -983,14 +1016,36 @@ if(assignRefreshBtn) assignRefreshBtn.addEventListener('click', loadAssignableIt
 const assignAssigneeSel = $('assign_assignee');
 if(assignAssigneeSel) assignAssigneeSel.addEventListener('change', renderAssignable);
 
+const assignTypeSel = $('assign_type');
+if(assignTypeSel) assignTypeSel.addEventListener('change', renderAssignable);
+
 const assignSortBySel = $('assign_sortBy');
 if(assignSortBySel) assignSortBySel.addEventListener('change', renderAssignable);
 
 const assignSortOrderSel = $('assign_sortOrder');
 if(assignSortOrderSel) assignSortOrderSel.addEventListener('change', renderAssignable);
 
-const assignTagModeSel = $('assign_tagMode');
-if(assignTagModeSel) assignTagModeSel.addEventListener('change', renderAssignable);
+// Tag dropdown
+const tagBtn = $('assign_tags_btn');
+const tagMenu = $('assign_tags_menu');
+const tagDd = $('assign_tags_dd');
+if(tagBtn && tagMenu){
+  tagBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    tagMenu.classList.toggle('hidden');
+  });
+}
+if(tagDd){
+  tagDd.addEventListener('click', (e) => e.stopPropagation());
+}
+document.addEventListener('click', () => {
+  if(tagMenu && !tagMenu.classList.contains('hidden')) tagMenu.classList.add('hidden');
+});
+
+document.querySelectorAll('input[name="assign_tag_mode"]').forEach(r => {
+  r.addEventListener('change', renderAssignable);
+});
 
 // column sort buttons
 const kanban = document.getElementById('assign_board');
@@ -1001,7 +1056,7 @@ if(kanban){
       if(!col) return;
       const p = Number(col.getAttribute('data-priority') || '0');
       const mode = btn.getAttribute('data-sort') || 'default';
-      if(p >= 1 && p <= 4){
+      if(p >= 0 && p <= 4){
         assignColumnSort[p] = mode;
         renderAssignable();
       }

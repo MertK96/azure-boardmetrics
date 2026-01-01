@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>AZDO Board Metrics MVP</title>
-  <link rel="stylesheet" href="/styles.css?v=20260101-review"/>
+  <link rel="stylesheet" href="/styles.css?v=20260101-assign3"/>
 </head>
 <body>
   <header>
@@ -122,6 +122,15 @@
             </label>
 
             <label>
+              Type:
+              <select id="assign_type">
+                <option value="" selected>Bug + Backlog</option>
+                <option value="bug">Bug</option>
+                <option value="backlog">Backlog</option>
+              </select>
+            </label>
+
+            <label>
               Sort By:
               <select id="assign_sortBy">
                 <option value="id">Id</option>
@@ -139,32 +148,43 @@
               </select>
             </label>
 
+            <div class="dd" id="assign_tags_dd">
+              <button id="assign_tags_btn" type="button" class="ddBtn">Tags</button>
+              <div id="assign_tags_menu" class="ddMenu hidden">
+                <div class="ddHead">
+                  <div class="ddMode">
+                    <span class="muted">Mode:</span>
+                    <label class="ddRadio"><input type="radio" name="assign_tag_mode" value="or" checked> OR</label>
+                    <label class="ddRadio"><input type="radio" name="assign_tag_mode" value="and"> AND</label>
+                  </div>
+                </div>
+                <div id="assign_tags_list" class="tagsBox"></div>
+              </div>
+            </div>
+
             <button id="assign_refresh" type="button">Yenile</button>
             <span id="assign_status"></span>
           </div>
 
-          <div class="filterRight">
-            <label class="tagOp">
-              Tags:
-              <select id="assign_tagMode">
-                <option value="or" selected>OR</option>
-                <option value="and">AND</option>
-              </select>
-            </label>
-
-            <div id="assign_tags" class="tagsBox"></div>
-          </div>
+          <div class="filterRight"></div>
         </div>
       </section>
 
       <section class="assignSection">
-        <div class="sectionTitle">Stories (State: New)</div>
-        <div id="assign_stories" class="cardsGrid"></div>
-      </section>
-
-      <section class="assignSection">
-        <div class="sectionTitle">Approved Bugs &amp; Product Backlog Items</div>
+        <div class="sectionTitle">Atanacak Maddeler</div>
         <div class="kanban" id="assign_board">
+          <div class="kanCol" data-priority="0" data-kind="story">
+            <div class="kanHead">
+              <div class="kanTitle">Stories (New)</div>
+              <div class="kanActions">
+                <button class="kanSortBtn" data-sort="default" type="button" title="Default">Default</button>
+                <button class="kanSortBtn" data-sort="oldest" type="button" title="Önce açılanlar">↑</button>
+                <button class="kanSortBtn" data-sort="newest" type="button" title="Sonra açılanlar">↓</button>
+              </div>
+            </div>
+            <div class="kanBody" id="assign_col_story"></div>
+          </div>
+
           <div class="kanCol" data-priority="1">
             <div class="kanHead">
               <div class="kanTitle">Priority 1</div>
@@ -266,6 +286,6 @@
 
 </main>
 
-  <script src="/app.js?v=20260101-reviewassign2"></script>
+  <script src="/app.js?v=20260101-assign3"></script>
 </body>
 </html>
