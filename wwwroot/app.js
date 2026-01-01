@@ -1276,6 +1276,21 @@ function perfUserLabel(u){
   return at > 0 ? un.slice(0, at) : un;
 }
 
+function perfPrettyName(s){
+  const x = String(s || '').trim();
+  if(!x) return '';
+  // If it's like "Name <mail>" take the Name part
+  const m = x.match(/^\s*([^<]+)\s*<[^>]+>\s*$/);
+  if(m && m[1]) return m[1].trim();
+  // If it looks like an email, title-case local part
+  if(x.includes('@') && !x.includes(' ')){
+    const local = x.split('@')[0];
+    const parts = local.split(/[._-]+/).filter(Boolean);
+    return parts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+  }
+  return x;
+}
+
 function renderPerfUsersSelect(){
   const sel = $('perf_user');
   if(!sel) return;
@@ -1370,7 +1385,18 @@ function renderPerfSummary(){
   if(!tbody) return;
 
   tbody.innerHTML = '';
-  const usersMap = new Map((azdoUsers || []).map(u => [(u.uniqueName || u.displayName || '').trim(), u]));
+  const usersMap = new Map();
+  for(const u of (azdoUsers || [])){
+    const un = String(u.uniqueName || '').trim();
+    const dn = String(u.displayName || '').trim();
+    if(un){
+      usersMap.set(un.toLowerCase(), u);
+      // also map extracted email if identity contains "Name <mail>"
+      const mm = un.match(/<([^>]+)>/);
+      if(mm && mm[1]) usersMap.set(mm[1].trim().toLowerCase(), u);
+    }
+    if(dn) usersMap.set(dn.toLowerCase(), u);
+  }
 
   for(const r of (perfSummary || [])){
     const tr = document.createElement('tr');
@@ -1383,8 +1409,9 @@ function renderPerfSummary(){
       loadPerfDone();
     });
 
-    const uObj = usersMap.get(r.user || '');
-    const name = uObj ? perfUserLabel(uObj) : (r.displayName || r.user || '');
+    const uKey = String(r.user || '').trim().toLowerCase();
+    const uObj = usersMap.get(uKey);
+    const name = uObj ? perfUserLabel(uObj) : (r.displayName || perfPrettyName(r.user) || r.user || '');
 
     tr.appendChild(cell(name));
     tr.appendChild(cell(String(r.stories ?? 0)));
@@ -1741,12 +1768,16 @@ function renderPerfChart(){
       ctx.stroke();
     }
 
-    // X labels
-    if(n <= 16 || (i % Math.ceil(n/12) === 0)){
-      ctx.fillStyle = 'rgba(201,209,217,.55)';
+    // X labels (avoid overlap on narrow screens)
+    const minLabelPx = 44;
+    const maxLabels = Math.max(2, Math.floor(innerW / minLabelPx));
+    const interval = Math.max(1, Math.ceil(n / maxLabels));
+    if(i % interval === 0 || i === n-1){
+      ctx.fillStyle = 'rgba(201,209,217,.60)';
       ctx.font = '11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
       const lbl = String(d.date).slice(5); // MM-dd
-      ctx.fillText(lbl, x0 - 2, baseY + 18);
+      const tw = ctx.measureText(lbl).width;
+      ctx.fillText(lbl, x0 + (barW/2) - (tw/2), baseY + 20);
     }
   }
 

@@ -427,7 +427,10 @@ ORDER BY [System.ChangedDate] DESC";
 
             // "Todos" burada Task değil; Product Backlog Item'ların To-Do tarafı olarak kullanılıyor.
             int stories = 0, bugs = 0, todos = 0, inProgress = 0, done = 0;
-            string? displayName = null;
+
+            // Prefer Graph display name if we can resolve it by uniqueName (usually email)
+            userDisplayMap.TryGetValue(u, out var dnFromGraph);
+            string? displayName = string.IsNullOrWhiteSpace(dnFromGraph) ? null : dnFromGraph;
 
             foreach (var wi in fetched)
             {
@@ -461,6 +464,9 @@ ORDER BY [System.ChangedDate] DESC";
                     displayName = assigned?.DisplayName;
                 }
             }
+
+            if (string.IsNullOrWhiteSpace(displayName) && !string.IsNullOrWhiteSpace(dnFromGraph))
+                displayName = dnFromGraph;
 
             result.Add(new UserPerfSummaryDto
             {

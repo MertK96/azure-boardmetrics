@@ -173,12 +173,13 @@ td.cellForecastOver{background:#2a2116}
 
 /* Kişisel Bazlı Performans */
 
-.perfGrid{display:grid;grid-template-columns:minmax(560px, 3fr) minmax(520px, 2fr);gap:14px;align-items:stretch}
+.perfGrid{display:grid;grid-template-columns:minmax(480px, 2fr) minmax(680px, 3fr);gap:12px;align-items:stretch}
 @media (max-width: 1100px){
   .perfGrid{grid-template-columns:1fr}
   .perfRight{position:static}
 }
-.perfLeft{min-width:0}
+.perfLeft{min-width:0;display:flex;flex-direction:column}
+.perfLeft .tableWrap{flex:1;min-height:620px}
 .perfRight{position:static;align-self:start}
 
 
@@ -193,22 +194,23 @@ td.cellForecastOver{background:#2a2116}
 .perfChartWrap{margin-top:0}
 .chartCard{border:1px solid #223044;border-radius:14px;background:#0b1220;padding:12px}
 .chartTitle{font-weight:700;margin-bottom:8px;color:#e6edf3}
-.chartCanvasWrap{position:relative;overflow:hidden;border:1px solid #223044;border-radius:12px;background:#0f1726;min-height:500px}
-.chartCanvasWrap canvas{display:block;width:100%;height:460px}
+.chartCanvasWrap{position:relative;overflow:hidden;border:1px solid #223044;border-radius:12px;background:#0f1726;min-height:520px}
+.chartCanvasWrap canvas{display:block;width:100%;height:480px}
 .tooltip{position:absolute;left:10px;top:10px;max-width:520px;background:#0b1220;border:1px solid #223044;border-radius:12px;padding:10px;font-size:12px;color:#c9d1d9;box-shadow:0 10px 30px rgba(0,0,0,.35);pointer-events:none;white-space:pre-wrap}
 .tooltip.hidden{display:none}
 
 
-.perfMetrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:10px 0 12px}
+.perfMetrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:10px 0 12px}
 
 /* Done list should follow chart and grow downward */
 .perfDoneWrap{margin-top:14px;margin-top:14px;width:100%}
 
 /* Summary table should not require horizontal scrolling */
-#tbl_perf{table-layout:fixed;width:100%}
+#tbl_perf{table-layout:fixed;width:100%;min-width:0}
+#tbl_perf th,#tbl_perf td{padding:5px 6px;font-size:11.5px}
 #tbl_perf th,#tbl_perf td{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#tbl_perf th:nth-child(1),#tbl_perf td:nth-child(1){width:38%;text-align:left}
-#tbl_perf th:nth-child(n+2),#tbl_perf td:nth-child(n+2){width:12.4%;text-align:center}
+#tbl_perf th:nth-child(1),#tbl_perf td:nth-child(1){width:24%;text-align:left}
+#tbl_perf th:nth-child(n+2),#tbl_perf td:nth-child(n+2){width:15.2%;text-align:center}
 .perfMetrics .metric{border:1px solid #223044;border-radius:12px;padding:8px;background:#0f1726}
 .perfMetrics .mLabel{font-size:11px;color:#97a6b3}
 .perfMetrics .mVal{font-size:14px;font-weight:700;color:#e6edf3;margin-top:2px}
