@@ -146,6 +146,17 @@ td.cellForecastOver{background:#2a2116}
 .aCard.bug{background:rgba(239,68,68,.10);border-color:rgba(239,68,68,.22)}
 .aCard.backlog{background:rgba(59,130,246,.10);border-color:rgba(59,130,246,.22)}
 .aCard.story{background:rgba(16,185,129,.08);border-color:rgba(16,185,129,.18)}
+
+/* Critical highlighting (Atanacak Maddeler) */
+.aCard.critical{border-left:5px solid rgba(245,158,11,.95)}
+.aCard.critical .aType{font-weight:700}
+.aCard .aCritical{font-size:12px;opacity:.95;padding:6px 8px;border-radius:10px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.22)}
+
+@keyframes critPulse{0%{box-shadow:0 0 0 0 rgba(245,158,11,.55)}70%{box-shadow:0 0 0 10px rgba(245,158,11,0)}100%{box-shadow:0 0 0 0 rgba(245,158,11,0)}}
+.aCard.criticalBlink{animation:critPulse 1.1s ease-out infinite}
+
+.aCard.criticalOverdue{border-left-color:rgba(239,68,68,.95)}
+.aCard.criticalOverdue .aCritical{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.22)}
 .aTop{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .aId{font-weight:700}
 .aType{font-size:12px;color:#97a6b3;border:1px solid #223044;border-radius:999px;padding:3px 8px;background:#0b1220}

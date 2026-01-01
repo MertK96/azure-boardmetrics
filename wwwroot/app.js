@@ -778,7 +778,18 @@ function createAssignCard(item){
   const typeRaw = (item.workItemType || '').trim();
   const type = typeRaw.toLowerCase();
   const cls = (type === 'bug') ? 'bug' : (type === 'product backlog item') ? 'backlog' : (type === 'user story') ? 'story' : '';
-  div.className = `aCard ${cls}`.trim();
+
+  const critical = isCriticalItem(item);
+  const unassigned = isUnassignedItem(item);
+  const overdueInProgress = isCriticalOverdueInProgress(item);
+
+  const extraCls = [
+    critical ? 'critical' : '',
+    (critical && unassigned) ? 'criticalBlink' : '',
+    overdueInProgress ? 'criticalOverdue' : ''
+  ].filter(Boolean).join(' ');
+
+  div.className = `aCard ${cls} ${extraCls}`.trim();
 
   const typeLabel = typeRaw;
   const title = (item.title || '').trim();
@@ -800,11 +811,68 @@ function createAssignCard(item){
       <span>Created: ${fmtDate(item.createdDate)}</span>
       <span>Changed: ${fmtDate(item.changedDate)}</span>
     </div>
+    ${renderCriticalHint(item)}
     <div class="aTags">${renderTagChips(tags)}</div>
   `;
 
   // Title click -> existing detail screen works only for In Progress items; so keep it as link to ADO
   return div;
+}
+
+function isCriticalItem(item){
+  const title = String(item?.title || '').toLowerCase();
+  const tags = (item?.tags || []).map(t => String(t || '').trim().toLowerCase()).filter(Boolean);
+  if(tags.some(t => t === 'critical' || t.includes('critical'))) return true;
+  if(title.includes('critical')) return true;
+  return false;
+}
+
+function isUnassignedItem(item){
+  const dn = String(item?.assignedToDisplayName || '').trim();
+  const un = String(item?.assignedToUniqueName || '').trim();
+  return !(dn || un);
+}
+
+function isInProgressState(s){
+  const x = String(s || '').trim().toLowerCase();
+  if(!x) return false;
+  // Common Agile processes + TR
+  return x === 'active'
+    || x.includes('in progress')
+    || x.includes('progress')
+    || x.includes('doing')
+    || x.includes('devam')
+    || x.includes('çalış')
+    || x.includes('calis')
+    || x.includes('geliştir')
+    || x.includes('gelistir');
+}
+
+function isCriticalOverdueInProgress(item){
+  if(!isCriticalItem(item)) return false;
+  if(isUnassignedItem(item)) return false; // requirement: assigned + overdue in-progress
+  if(!isInProgressState(item?.state)) return false;
+  const dd = item?.dueDate ? new Date(item.dueDate) : null;
+  if(!dd || isNaN(+dd)) return false;
+  return dd.getTime() < Date.now();
+}
+
+function renderCriticalHint(item){
+  if(!isCriticalItem(item)) return '';
+  const unassigned = isUnassignedItem(item);
+  const overdue = isCriticalOverdueInProgress(item);
+  const dd = item?.dueDate ? fmtDate(item.dueDate) : '';
+
+  let msg = '';
+  if(unassigned){
+    msg = 'CRITICAL • Unassigned';
+  }else if(overdue){
+    msg = `CRITICAL • Overdue (Due: ${dd || '-'})`;
+  }else{
+    msg = dd ? `CRITICAL • Due: ${dd}` : 'CRITICAL';
+  }
+
+  return `<div class="aCritical">${escapeHtml(msg)}</div>`;
 }
 
 function updateColumnSortButtons(){
@@ -853,12 +921,14 @@ function renderAssignable(){
   function applyColSort(arr, p){
     const mode = assignColumnSort[p] || 'default';
     if(mode === 'oldest'){
-      return arr.slice().sort((a,b) => (+new Date(a.createdDate) - +new Date(b.createdDate)) || (a.orderIndex - b.orderIndex));
+      const base = arr.slice().sort((a,b) => (+new Date(a.createdDate) - +new Date(b.createdDate)) || (a.orderIndex - b.orderIndex));
+      return criticalFirst(base);
     }
     if(mode === 'newest'){
-      return arr.slice().sort((a,b) => (+new Date(b.createdDate) - +new Date(a.createdDate)) || (a.orderIndex - b.orderIndex));
+      const base = arr.slice().sort((a,b) => (+new Date(b.createdDate) - +new Date(a.createdDate)) || (a.orderIndex - b.orderIndex));
+      return criticalFirst(base);
     }
-    return arr;
+    return criticalFirst(arr);
   }
 
   const storyItems = applyColSort(sortedStories, 0);
@@ -897,6 +967,15 @@ function renderAssignable(){
   }
 
   updateTagButton();
+}
+
+function criticalFirst(arr){
+  const crit = [];
+  const rest = [];
+  for(const x of (arr || [])){
+    (isCriticalItem(x) ? crit : rest).push(x);
+  }
+  return crit.concat(rest);
 }
 
 function fillAssignFilters(items){
@@ -1004,6 +1083,7 @@ async function loadAssignableItems(){
     assignedToUniqueName: x.assignedToUniqueName ?? x.AssignedToUniqueName,
     createdDate: x.createdDate ?? x.CreatedDate,
     changedDate: x.changedDate ?? x.ChangedDate,
+    dueDate: x.dueDate ?? x.DueDate,
     tags: x.tags ?? x.Tags ?? []
   }));
 

@@ -290,6 +290,7 @@ ORDER BY [System.ChangedDate] DESC";
             AssignedToUniqueName = assigned?.UniqueName,
             CreatedDate = wi.GetDate("System.CreatedDate") ?? DateTimeOffset.MinValue,
             ChangedDate = wi.GetDate("System.ChangedDate") ?? DateTimeOffset.MinValue,
+            DueDate = wi.GetDate("Microsoft.VSTS.Scheduling.DueDate"),
             Tags = tags
         });
     }
@@ -952,6 +953,8 @@ public sealed class AssignableItemDto
 
     public DateTimeOffset CreatedDate { get; set; }
     public DateTimeOffset ChangedDate { get; set; }
+
+    public DateTimeOffset? DueDate { get; set; }
 
     public string[] Tags { get; set; } = Array.Empty<string>();
 }
