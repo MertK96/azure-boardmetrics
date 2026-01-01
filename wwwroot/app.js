@@ -1334,6 +1334,11 @@ async function loadPerfSummary(){
   params.set('users', perfActiveUser);
   params.set('top', '2000');
 
+  const { year, month, week } = getPerfPeriod();
+  params.set('year', String(year));
+  params.set('month', String(month));
+  params.set('week', String(week));
+
   let res;
   try{
     res = await fetch('/api/performance/summary?' + params.toString());

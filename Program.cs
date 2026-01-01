@@ -308,13 +308,42 @@ ORDER BY [System.ChangedDate] DESC";
 
 
 // -------------------- Kişisel Bazlı Performans --------------------
-app.MapGet("/api/performance/summary", async (AzdoClient az, string users, int? top, CancellationToken ct) =>
+app.MapGet("/api/performance/summary", async (AzdoClient az, string users, int year, int month, string? week, int? top, CancellationToken ct) =>
 {
     static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
 
     try
     {
         var take = Math.Clamp(top ?? 1200, 1, 5000);
+
+
+// period range (year/month/week)
+var w = (week ?? "all").Trim().ToLowerInvariant();
+var isAll = w == "" || w == "all" || w == "hepsi";
+
+var mStart = new DateTime(year, month, 1);
+var daysInMonth = DateTime.DaysInMonth(year, month);
+
+DateTime start = mStart;
+DateTime endExclusive = mStart.AddMonths(1);
+
+if (!isAll)
+{
+    if (!int.TryParse(w, out var wn)) wn = 1;
+    if (wn < 1) wn = 1;
+    if (wn > 5) wn = 5;
+
+    var startDay = 1 + (wn - 1) * 7;
+    if (startDay > daysInMonth) startDay = Math.Max(1, daysInMonth - 6);
+
+    var endDay = Math.Min(startDay + 6, daysInMonth);
+
+    start = new DateTime(year, month, startDay);
+    endExclusive = new DateTime(year, month, endDay).AddDays(1);
+}
+
+var sinceStr = start.ToString("yyyy-MM-dd");
+var untilStr = endExclusive.ToString("yyyy-MM-dd");
 
         var projRaw = (az.Options.Project ?? "").Trim();
         var proj = EscapeWiql(projRaw);
@@ -382,6 +411,8 @@ WHERE
     {projectClause}[System.State] <> 'Removed'
     AND {assignedClause}
     AND [System.WorkItemType] IN ('User Story','Bug','Product Backlog Item')
+    AND [System.ChangedDate] >= '{sinceStr}'
+    AND [System.ChangedDate] < '{untilStr}'
 ORDER BY [System.ChangedDate] DESC";
 
             var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);
@@ -530,7 +561,6 @@ FROM WorkItems
 WHERE
     {projectClause}[System.State] <> 'Removed'
     AND {assignedClause}
-    // Performans grafiği ve Done listesi: sadece Bug + Product Backlog Item
     AND [System.WorkItemType] IN ('Bug','Product Backlog Item')
     AND [System.State] IN ({doneIn})
     AND [System.ChangedDate] >= '{sinceStr}'

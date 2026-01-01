@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>AZDO Board Metrics MVP</title>
-  <link rel="stylesheet" href="/styles.css?v=20260101-perf6"/>
+  <link rel="stylesheet" href="/styles.css?v=20260101-perf7"/>
 </head>
 <body>
   <header>
@@ -296,32 +296,32 @@
               <div id="perf_chart_title" class="chartTitle"></div>
               <div id="perf_metrics" class="perfMetrics"></div>
               <div class="chartCanvasWrap">
-                <canvas id="perf_candle" width="2000" height="460"></canvas>
+                <canvas id="perf_candle" width="2000" height="480"></canvas>
                 <div id="perf_tip" class="tooltip hidden"></div>
               </div>
               <div class="hint">Grafik üstüne gelince o gün tamamlanan Bug/Backlog maddeleri (ID + başlık) ve eforları görünür.</div>
             </div>
-          </section>
-
-          <section class="tableWrap perfDoneWrap">
-            <div class="sectionTitle">Done Statüsündeki Maddeler</div>
-            <table id="tbl_perf_done">
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Title</th>
-                  <th>Type</th>
-                  <th>Effort</th>
-                  <th>Start</th>
-                  <th>Due</th>
-                  <th>Completed</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </section>
-        </div>
+          </section></div>
       </div>
+                <section class="tableWrap perfDoneWrap">
+                  <div class="sectionTitle">Done Statüsündeki Maddeler</div>
+                  <table id="tbl_perf_done">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Type</th>
+                        <th>Effort</th>
+                        <th>Start</th>
+                        <th>Due</th>
+                        <th>Completed</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </section>
+              
+
     </div>
 
 <!-- -------------------- DETAIL (GLOBAL) -------------------- -->
@@ -373,6 +373,6 @@
 
 </main>
 
-  <script src="/app.js?v=20260101-perf6"></script>
+  <script src="/app.js?v=20260101-perf7"></script>
 </body>
 </html>
