@@ -327,6 +327,15 @@ app.MapGet("/api/performance/summary", async (AzdoClient az, string users, int? 
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+        List<AzdoUserDto> graphUsers;
+        try { graphUsers = await az.GetAzdoUsersAsync(2000, ct); }
+        catch { graphUsers = new List<AzdoUserDto>(); }
+
+        var userDisplayMap = graphUsers
+            .Where(x => !string.IsNullOrWhiteSpace(x.UniqueName))
+            .GroupBy(x => x.UniqueName.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.FirstOrDefault()?.DisplayName?.Trim() ?? "", StringComparer.OrdinalIgnoreCase);
+
         if (listUsers.Length == 0)
             return Results.Ok(Array.Empty<UserPerfSummaryDto>());
 
@@ -360,13 +369,18 @@ app.MapGet("/api/performance/summary", async (AzdoClient az, string users, int? 
             var u = uRaw.Trim();
             var uEsc = EscapeWiql(u);
 
+            var assignedClause = uEsc.Contains("@")
+                ? $"([System.AssignedTo] CONTAINS '{uEsc}' OR [System.AssignedTo] = '{uEsc}')"
+                : $"[System.AssignedTo] = '{uEsc}'";
+
+
             var wiql = $@"
 SELECT [System.Id]
 FROM WorkItems
 WHERE
     {projectClause}[System.State] <> 'Removed'
-    AND [System.AssignedTo] = '{uEsc}'
-    AND [System.WorkItemType] IN ('User Story','Bug','Task')
+    AND {assignedClause}
+    AND [System.WorkItemType] IN ('User Story','Bug','Task','Product Backlog Item')
 ORDER BY [System.ChangedDate] DESC";
 
             var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);
@@ -389,10 +403,10 @@ ORDER BY [System.ChangedDate] DESC";
 
                 if (type.Equals("User Story", StringComparison.OrdinalIgnoreCase)) stories++;
                 else if (type.Equals("Bug", StringComparison.OrdinalIgnoreCase)) bugs++;
-                else if (type.Equals("Task", StringComparison.OrdinalIgnoreCase)) todos++;
 
                 if (IsDone(state)) done++;
                 else if (IsInProgress(state)) inProgress++;
+                else todos++;
 
                 if (displayName is null)
                 {
@@ -480,12 +494,26 @@ app.MapGet("/api/performance/done", async (AzdoClient az, string user, int year,
 
         var uEsc = EscapeWiql(uRaw);
 
+        List<AzdoUserDto> graphUsers;
+        try { graphUsers = await az.GetAzdoUsersAsync(2000, ct); }
+        catch { graphUsers = new List<AzdoUserDto>(); }
+
+        var userDisplayMap = graphUsers
+            .Where(x => !string.IsNullOrWhiteSpace(x.UniqueName))
+            .GroupBy(x => x.UniqueName.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.FirstOrDefault()?.DisplayName?.Trim() ?? "", StringComparer.OrdinalIgnoreCase);
+
+        var assignedClause = uEsc.Contains("@")
+            ? $"([System.AssignedTo] CONTAINS '{uEsc}' OR [System.AssignedTo] = '{uEsc}')"
+            : $"[System.AssignedTo] = '{uEsc}'";
+
+
         var wiql = $@"
 SELECT [System.Id]
 FROM WorkItems
 WHERE
     {projectClause}[System.State] <> 'Removed'
-    AND [System.AssignedTo] = '{uEsc}'
+    AND {assignedClause}
     AND [System.WorkItemType] IN ('User Story','Bug','Task','Product Backlog Item')
     AND [System.State] IN ({doneIn})
     AND [System.ChangedDate] >= '{sinceStr}'
