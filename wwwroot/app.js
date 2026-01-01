@@ -1431,9 +1431,42 @@ function getPerfPeriod(){
   return { year, month, week };
 }
 
+function getPerfRange(){
+  const { year, month, week } = getPerfPeriod();
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const w = String(week || 'all').trim().toLowerCase();
+  const isAll = (w === '' || w === 'all' || w === 'hepsi');
+
+  let startDay = 1;
+  let endDay = daysInMonth;
+  if(!isAll){
+    let wn = parseInt(w, 10);
+    if(!Number.isFinite(wn)) wn = 1;
+    if(wn < 1) wn = 1;
+    if(wn > 5) wn = 5;
+    startDay = 1 + (wn - 1) * 7;
+    if(startDay > daysInMonth) startDay = Math.max(1, daysInMonth - 6);
+    endDay = Math.min(startDay + 6, daysInMonth);
+  }
+
+  // JS month is 0-based
+  const start = new Date(year, month - 1, startDay);
+  const endExclusive = new Date(year, month - 1, endDay + 1);
+  return { start, endExclusive };
+}
+
 
 function buildPerfDailyStacks(items){
+  const { start, endExclusive } = getPerfRange();
   const byDate = new Map();
+
+  // Ensure the x-axis covers the whole selected period (week/month), even if some days have 0.
+  const cur = new Date(start.getTime());
+  while(cur < endExclusive){
+    const key = cur.toLocaleDateString('sv-SE');
+    byDate.set(key, { date: key, bugEff: 0, backlogEff: 0, bugItems: [], backlogItems: [] });
+    cur.setDate(cur.getDate() + 1);
+  }
 
   for(const it of (items || [])){
     const cd = it.completedDate;
@@ -1442,20 +1475,17 @@ function buildPerfDailyStacks(items){
     if(isNaN(d.getTime())) continue;
 
     const dateKey = d.toLocaleDateString('sv-SE'); // yyyy-MM-dd (local)
-    const type = (it.workItemType || '').toLowerCase();
-
     let bucket = byDate.get(dateKey);
     if(!bucket){
-      bucket = { date: dateKey, bugEff: 0, backlogEff: 0, bugItems: [], backlogItems: [] };
-      byDate.set(dateKey, bucket);
+      // if API returned an item outside the range, ignore
+      continue;
     }
 
+    const type = (it.workItemType || '').toLowerCase();
     const eff = Number(it.effort) || 0;
     const id = Number(it.id) || 0;
 
     const isBug = type === 'bug' || type.includes('bug');
-
-    // Chart is Bug vs Backlog: treat everything else as Backlog bucket
     if(isBug){
       bucket.bugEff += eff;
       bucket.bugItems.push({ id, effort: eff });
@@ -1509,6 +1539,16 @@ async function loadPerfDone(){
   perfDoneItems = (Array.isArray(data?.items) ? data.items : []).filter(it => {
     const t = String(it?.workItemType || '').toLowerCase();
     return !t.includes('task');
+  });
+
+  // Sort by completed date ascending to match the selected period timeline.
+  perfDoneItems.sort((a,b) => {
+    const da = new Date(a?.completedDate || 0);
+    const db = new Date(b?.completedDate || 0);
+    const ta = isNaN(da.getTime()) ? 0 : da.getTime();
+    const tb = isNaN(db.getTime()) ? 0 : db.getTime();
+    if(ta !== tb) return ta - tb;
+    return (Number(a?.id)||0) - (Number(b?.id)||0);
   });
   perfDoneById = new Map(perfDoneItems.map(it => [Number(it.id)||0, it]));
   perfDailyStacks = buildPerfDailyStacks(perfDoneItems);
@@ -1617,6 +1657,15 @@ function perfHideTip(){
   if(tip) tip.classList.add('hidden');
 }
 
+function escapeHtml(s){
+  return String(s ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function perfOnHover(e){
   const canvas = $('perf_candle');
   const tip = $('perf_tip');
@@ -1645,25 +1694,52 @@ function perfOnHover(e){
   const bug = Number(d.bugEff) || 0;
   const backlog = Number(d.backlogEff) || 0;
 
-  const line = (x) => {
+  const makeLine = (x) => {
     const wi = perfDoneById.get(Number(x.id)||0);
     const title = String(wi?.title || '').trim();
-    const t = title.length > 90 ? (title.slice(0, 87) + '...') : title;
-    return `#${x.id} - ${t}: ${n2(x.effort ?? 0)}`;
+    // Keep full title (wrap in tooltip). If extremely long, truncate slightly.
+    const t = title.length > 140 ? (title.slice(0, 137) + '...') : title;
+    return { id: Number(x.id)||0, title: t, effort: Number(x.effort ?? 0) };
   };
 
-  const bugLines = (d.bugItems || []).map(line).join('\n  ');
-  const blLines = (d.backlogItems || []).map(line).join('\n  ');
+  const bugLines = (d.bugItems || []).map(makeLine);
+  const blLines = (d.backlogItems || []).map(makeLine);
 
-  tip.textContent =
-`${d.date}
-Backlog: ${n2(backlog)}${blLines ? `\n  ${blLines}` : ''}
-Bug: ${n2(bug)}${bugLines ? `\n  ${bugLines}` : ''}`;
+  const rows = [];
+  rows.push(`<div class="ttDate">${escapeHtml(d.date)}</div>`);
 
-  // position
-  tip.style.left = Math.min((x+12), rect.width - 30) + 'px';
-  tip.style.top = Math.min((y+12), rect.height - 30) + 'px';
+  rows.push(`<div class="ttGroup"><div class="ttHdr">Backlog: ${escapeHtml(n2(backlog))}</div>`);
+  for(const x of blLines){
+    rows.push(`<div class="ttLine">#${x.id} - ${escapeHtml(x.title)}: ${escapeHtml(n2(x.effort))}</div>`);
+  }
+  rows.push(`</div>`);
+
+  rows.push(`<div class="ttGroup"><div class="ttHdr">Bug: ${escapeHtml(n2(bug))}</div>`);
+  for(const x of bugLines){
+    rows.push(`<div class="ttLine">#${x.id} - ${escapeHtml(x.title)}: ${escapeHtml(n2(x.effort))}</div>`);
+  }
+  rows.push(`</div>`);
+
+  tip.innerHTML = rows.join('');
+
+  // position: open right if fits; otherwise open to the left. Also keep within view.
   tip.classList.remove('hidden');
+  tip.style.left = '0px';
+  tip.style.top = '0px';
+
+  const tipW = tip.offsetWidth || 320;
+  const tipH = tip.offsetHeight || 160;
+
+  let left = x + 12;
+  if(left + tipW > rect.width) left = x - tipW - 12;
+  if(left < 0) left = 0;
+
+  let top = y + 12;
+  if(top + tipH > rect.height) top = y - tipH - 12;
+  if(top < 0) top = 0;
+
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
 }
 
 function renderPerfChart(){

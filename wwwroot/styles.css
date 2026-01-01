@@ -194,10 +194,15 @@ td.cellForecastOver{background:#2a2116}
 .perfChartWrap{margin-top:0}
 .chartCard{border:1px solid #223044;border-radius:14px;background:#0b1220;padding:12px}
 .chartTitle{font-weight:700;margin-bottom:8px;color:#e6edf3}
-.chartCanvasWrap{position:relative;overflow:hidden;border:1px solid #223044;border-radius:12px;background:#0f1726;min-height:520px}
+.chartCanvasWrap{position:relative;overflow:visible;border:1px solid #223044;border-radius:12px;background:#0f1726;min-height:520px}
 .chartCanvasWrap canvas{display:block;width:100%;height:480px}
-.tooltip{position:absolute;left:10px;top:10px;max-width:520px;background:#0b1220;border:1px solid #223044;border-radius:12px;padding:10px;font-size:12px;color:#c9d1d9;box-shadow:0 10px 30px rgba(0,0,0,.35);pointer-events:none;white-space:pre-wrap}
+.tooltip{position:absolute;left:10px;top:10px;z-index:6;max-width:560px;max-height:60vh;overflow:auto;background:#0b1220;border:1px solid #223044;border-radius:12px;padding:10px;font-size:12px;color:#c9d1d9;box-shadow:0 10px 30px rgba(0,0,0,.35);pointer-events:none;white-space:normal;overflow-wrap:anywhere;word-break:break-word}
 .tooltip.hidden{display:none}
+
+.tooltip .ttDate{font-weight:700;margin-bottom:6px;color:#e6edf3}
+.tooltip .ttGroup{margin-top:8px}
+.tooltip .ttHdr{font-weight:700;color:#c9d1d9;margin-bottom:4px}
+.tooltip .ttLine{margin-left:12px;line-height:1.35;margin-bottom:2px}
 
 
 .perfMetrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:10px 0 12px}

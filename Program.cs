@@ -631,6 +631,11 @@ ORDER BY [System.ChangedDate] ASC";
         var byId = fetched.ToDictionary(x => x.Id, x => x);
         var items = new List<PerfDoneItemDto>();
 
+        // Filter by *completed date* in selected local period (not changed date).
+        // This avoids odd ordering/empty gaps when work items were edited later.
+        var startLocalDate = start.Date;
+        var endLocalDateEx = endExclusive.Date;
+
         foreach (var id in ids)
         {
             if (!byId.TryGetValue(id, out var wi)) continue;
@@ -638,8 +643,14 @@ ORDER BY [System.ChangedDate] ASC";
             var effort = PickEffort(wi);
             var startDate = PickDate(wi, "Microsoft.VSTS.Scheduling.StartDate");
             var dueDate = PickDate(wi, az.Options.DueDateField, "Microsoft.VSTS.Scheduling.DueDate", "Microsoft.VSTS.Scheduling.TargetDate");
-            var closedDate = PickDate(wi, "Microsoft.VSTS.Common.ClosedDate", "Microsoft.VSTS.Common.ResolvedDate");
-            var completed = closedDate ?? wi.GetDate("System.ChangedDate") ?? DateTimeOffset.UtcNow;
+            var closedOrResolved = PickDate(wi, "Microsoft.VSTS.Common.ClosedDate", "Microsoft.VSTS.Common.ResolvedDate");
+            var completed = closedOrResolved ?? wi.GetDate("System.ChangedDate") ?? DateTimeOffset.UtcNow;
+
+            // Convert to local date for period filter
+            var utc = completed.UtcDateTime;
+            var localDate = TimeZoneInfo.ConvertTimeFromUtc(utc, tz).Date;
+            if (localDate < startLocalDate || localDate >= endLocalDateEx)
+                continue;
 
             items.Add(new PerfDoneItemDto
             {
@@ -654,34 +665,41 @@ ORDER BY [System.ChangedDate] ASC";
             });
         }
 
-        // Build daily candles
-        var groups = items
+        // Sort by completed date asc (table + chart should match the selected period timeline)
+        items = items
+            .OrderBy(x => x.CompletedDate ?? DateTimeOffset.MaxValue)
+            .ThenBy(x => x.Id)
+            .ToList();
+
+        // Build daily candles (continuous range: include days with zero)
+        var itemGroups = items
             .GroupBy(x =>
             {
                 var utc = (x.CompletedDate ?? DateTimeOffset.UtcNow).UtcDateTime;
-                var local = TimeZoneInfo.ConvertTimeFromUtc(utc, tz).Date;
-                return local;
+                return TimeZoneInfo.ConvertTimeFromUtc(utc, tz).Date;
             })
-            .OrderBy(g => g.Key);
+            .ToDictionary(g => g.Key, g => g.ToList());
 
         var candles = new List<PerfCandleDto>();
-
-        foreach (var g in groups)
+        for (var day = startLocalDate; day < endLocalDateEx; day = day.AddDays(1))
         {
-            var ordered = g
+            if (!itemGroups.TryGetValue(day, out var list))
+                list = new List<PerfDoneItemDto>();
+
+            var ordered = list
                 .OrderBy(x => (x.CompletedDate ?? DateTimeOffset.UtcNow))
                 .ToList();
 
             double val(PerfDoneItemDto x) => x.Effort ?? 0;
 
-            var open = val(ordered.First());
-            var close = val(ordered.Last());
-            var high = ordered.Max(x => val(x));
-            var low = ordered.Min(x => val(x));
+            var open = ordered.Count > 0 ? val(ordered.First()) : 0;
+            var close = ordered.Count > 0 ? val(ordered.Last()) : 0;
+            var high = ordered.Count > 0 ? ordered.Max(x => val(x)) : 0;
+            var low = ordered.Count > 0 ? ordered.Min(x => val(x)) : 0;
 
             candles.Add(new PerfCandleDto
             {
-                Date = g.Key.ToString("yyyy-MM-dd"),
+                Date = day.ToString("yyyy-MM-dd"),
                 Open = open,
                 High = high,
                 Low = low,
