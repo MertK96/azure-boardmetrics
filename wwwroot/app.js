@@ -837,6 +837,14 @@ function createAssignCard(item){
     });
   }
 
+
+  // Inline description edit
+  const descBtn = div.querySelector('.aDescEdit');
+  const descText = div.querySelector('.aDescText');
+  const openDesc = (e) => { e.preventDefault(); e.stopPropagation(); openEditDescriptionModal(item); };
+  if(descBtn) descBtn.addEventListener('click', openDesc);
+  if(descText) descText.addEventListener('click', openDesc);
+
   // Title click -> existing detail screen works only for In Progress items; so keep it as link to ADO
   return div;
 }
@@ -1236,6 +1244,9 @@ if(reviewRefreshBtn) reviewRefreshBtn.addEventListener('click', loadReviewItems)
 // assign view
 const assignRefreshBtn = $('assign_refresh');
 if(assignRefreshBtn) assignRefreshBtn.addEventListener('click', loadAssignableItems);
+
+const assignNewBtn = $('assign_new');
+if(assignNewBtn) assignNewBtn.addEventListener('click', openCreateWorkItemModal);
 
 const assignAssigneeSel = $('assign_assignee');
 if(assignAssigneeSel) assignAssigneeSel.addEventListener('change', renderAssignable);
@@ -2031,3 +2042,202 @@ if(sendCommentBtn) sendCommentBtn.addEventListener('click', sendComment);
 
 initMainTabs();
 load();
+
+
+/* -------------------- Assign: Create / Edit Description -------------------- */
+
+function htmlToText(html){
+  try{
+    const d = document.createElement('div');
+    d.innerHTML = html || '';
+    return (d.textContent || '').trim();
+  }catch{
+    return String(html || '').trim();
+  }
+}
+
+function textToHtml(text){
+  const s = String(text || '');
+  return escapeHtml(s).replace(/\r\n/g,'\n').replace(/\r/g,'\n').replace(/\n/g,'<br/>');
+}
+
+function ensureModalStyles(){
+  if(document.getElementById('modalStyles')) return;
+  const st = document.createElement('style');
+  st.id = 'modalStyles';
+  st.textContent = `
+  .modalOverlay{ position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; z-index:9999; }
+  .modalBox{ width:min(760px, 92vw); max-height:86vh; overflow:auto; background:rgba(20,26,38,.98); border:1px solid rgba(255,255,255,.10); border-radius:14px; box-shadow:0 12px 40px rgba(0,0,0,.45); padding:16px; }
+  .modalTitle{ font-weight:700; margin:0 0 10px 0; }
+  .modalRow{ display:flex; gap:10px; flex-wrap:wrap; margin:10px 0; }
+  .modalRow label{ display:flex; flex-direction:column; gap:6px; font-size:12px; color:rgba(255,255,255,.80); }
+  .modalRow input, .modalRow select, .modalRow textarea{ background:rgba(255,255,255,.06); color:#fff; border:1px solid rgba(255,255,255,.10); border-radius:10px; padding:9px 10px; outline:none; }
+  .modalRow textarea{ width:100%; min-height:180px; resize:vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  .modalActions{ display:flex; gap:10px; justify-content:flex-end; margin-top:12px; }
+  .btnPrimary{ background:#2b74ff; border:0; padding:9px 12px; border-radius:10px; color:#fff; cursor:pointer; font-weight:600; }
+  .btnGhost{ background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10); padding:9px 12px; border-radius:10px; color:#fff; cursor:pointer; }
+  `;
+  document.head.appendChild(st);
+}
+
+function openModal(title, bodyEl, onSave){
+  ensureModalStyles();
+  const ov = document.createElement('div');
+  ov.className = 'modalOverlay';
+  ov.addEventListener('click', (e)=>{ if(e.target===ov) ov.remove(); });
+
+  const box = document.createElement('div');
+  box.className = 'modalBox';
+
+  const h = document.createElement('h3');
+  h.className = 'modalTitle';
+  h.textContent = title;
+
+  const actions = document.createElement('div');
+  actions.className = 'modalActions';
+
+  const btnCancel = document.createElement('button');
+  btnCancel.type='button';
+  btnCancel.className='btnGhost';
+  btnCancel.textContent='Vazgeç';
+  btnCancel.addEventListener('click', ()=> ov.remove());
+
+  const btnSave = document.createElement('button');
+  btnSave.type='button';
+  btnSave.className='btnPrimary';
+  btnSave.textContent='Kaydet';
+  btnSave.addEventListener('click', async ()=>{
+    try{
+      btnSave.disabled = true;
+      await onSave();
+      ov.remove();
+    }finally{
+      btnSave.disabled = false;
+    }
+  });
+
+  actions.appendChild(btnCancel);
+  actions.appendChild(btnSave);
+
+  box.appendChild(h);
+  box.appendChild(bodyEl);
+  box.appendChild(actions);
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+  return ov;
+}
+
+async function patchDescription(workItemId, descriptionText){
+  const res = await fetch(`/api/workitems/${workItemId}/description`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description: descriptionText })
+  });
+  if(!res.ok){
+    const t = await res.text();
+    throw new Error(t || `HTTP ${res.status}`);
+  }
+}
+
+async function createWorkItem(type, title, priority, descriptionText){
+  const res = await fetch(`/api/workitems`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workItemType: type, title, priority, description: descriptionText })
+  });
+  if(!res.ok){
+    const t = await res.text();
+    throw new Error(t || `HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
+function openEditDescriptionModal(item){
+  const body = document.createElement('div');
+
+  const ta = document.createElement('textarea');
+  ta.value = htmlToText(item.descriptionHtml || '');
+  body.appendChild(ta);
+
+  openModal(`#${item.id} Açıklama`, body, async ()=>{
+    await patchDescription(item.id, ta.value);
+    item.descriptionHtml = textToHtml(ta.value);
+    renderAssignable(); // re-render cards
+  });
+}
+
+function openCreateWorkItemModal(){
+  const body = document.createElement('div');
+
+  const row1 = document.createElement('div');
+  row1.className='modalRow';
+
+  const lType = document.createElement('label');
+  lType.innerHTML = 'Tür';
+  const selType = document.createElement('select');
+  selType.innerHTML = `
+    <option value="Product Backlog Item" selected>Product Backlog Item</option>
+    <option value="Bug">Bug</option>
+  `;
+  lType.appendChild(selType);
+
+  const lPri = document.createElement('label');
+  lPri.innerHTML = 'Priority';
+  const selPri = document.createElement('select');
+  selPri.innerHTML = `
+    <option value="1">1</option>
+    <option value="2">2</option>
+    <option value="3">3</option>
+    <option value="4" selected>4</option>
+  `;
+  lPri.appendChild(selPri);
+
+  row1.appendChild(lType);
+  row1.appendChild(lPri);
+
+  const row2 = document.createElement('div');
+  row2.className='modalRow';
+
+  const lTitle = document.createElement('label');
+  lTitle.style.flex='1 1 520px';
+  lTitle.innerHTML = 'Başlık';
+  const inTitle = document.createElement('input');
+  inTitle.type='text';
+  inTitle.placeholder='Örn: Kiosk raporu iyileştirme';
+  lTitle.appendChild(inTitle);
+  row2.appendChild(lTitle);
+
+  const row3 = document.createElement('div');
+  row3.className='modalRow';
+  const lDesc = document.createElement('label');
+  lDesc.style.width='100%';
+  lDesc.innerHTML = 'Açıklama';
+  const ta = document.createElement('textarea');
+  ta.placeholder='Açıklamayı yaz...';
+  lDesc.appendChild(ta);
+  row3.appendChild(lDesc);
+
+  body.appendChild(row1);
+  body.appendChild(row2);
+  body.appendChild(row3);
+
+  openModal('Yeni Madde Oluştur', body, async ()=>{
+    const type = selType.value;
+    const pri = parseInt(selPri.value,10);
+    const title = (inTitle.value || '').trim();
+    if(!title) throw new Error('Başlık boş olamaz.');
+    await createWorkItem(type, title, pri, ta.value);
+    await loadAssignableItems(); // refresh to show new item
+  });
+}
+  <div class="aDescRow">
+          <button type="button" class="aDescEdit" title="Açıklama düzenle">✎</button>
+          <div class="aDescText">${escapeHtml(truncateText(htmlToText(item.descriptionHtml||''), 180))}</div>
+        </div>
+
+
+function truncateText(s, maxLen){
+  const t = String(s || '');
+  if(t.length <= maxLen) return t;
+  return t.slice(0, Math.max(0, maxLen-1)) + '…';
+}

@@ -339,6 +339,100 @@ public async Task UpdateWorkItemAssignedToAsync(int id, string? assigneeUniqueNa
     }
 }
 
+
+
+public async Task UpdateWorkItemDescriptionAsync(int id, string descriptionHtml, CancellationToken ct)
+{
+    var project = (_opt.Project ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(project))
+        throw new Exception("Project boş. AZDO_PROJECT/appsettings üzerinden proje adı gerekli.");
+
+    // System.Description expects HTML.
+    var patch = new object[]
+    {
+        new { op = "add", path = "/fields/System.Description", value = (descriptionHtml ?? "") }
+    };
+
+    var url = $"{project}/_apis/wit/workitems/{id}?api-version=7.1-preview.3";
+
+    using var req = new HttpRequestMessage(new HttpMethod("PATCH"), url);
+    req.Content = new StringContent(JsonSerializer.Serialize(patch), Encoding.UTF8, "application/json-patch+json");
+
+    using var res = await _http.SendAsync(req, ct);
+    if (!res.IsSuccessStatusCode)
+    {
+        var body = await res.Content.ReadAsStringAsync(ct);
+        throw new Exception($"WI UpdateDescription failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
+    }
+}
+
+public async Task<AzdoWorkItem> CreateWorkItemAsync(string workItemType, string title, string descriptionHtml, int priority, CancellationToken ct)
+{
+    var project = (_opt.Project ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(project))
+        throw new Exception("Project boş. AZDO_PROJECT/appsettings üzerinden proje adı gerekli.");
+
+    var type = (workItemType ?? "").Trim();
+    var t = (title ?? "").Trim();
+
+    // Create via JSON Patch
+    // Note: Setting State directly may fail in some processes; we'll try with state and retry without.
+    object[] patchWithStateAndPriority = new object[]
+    {
+        new { op = "add", path = "/fields/System.Title", value = t },
+        new { op = "add", path = "/fields/System.Description", value = (descriptionHtml ?? "") },
+        new { op = "add", path = "/fields/System.State", value = "Approved" },
+        new { op = "add", path = "/fields/Microsoft.VSTS.Common.Priority", value = Math.Clamp(priority, 1, 4) }
+    };
+
+    object[] patchWithState = new object[]
+    {
+        new { op = "add", path = "/fields/System.Title", value = t },
+        new { op = "add", path = "/fields/System.Description", value = (descriptionHtml ?? "") },
+        new { op = "add", path = "/fields/System.State", value = "Approved" }
+    };
+
+    object[] patchMinimal = new object[]
+    {
+        new { op = "add", path = "/fields/System.Title", value = t },
+        new { op = "add", path = "/fields/System.Description", value = (descriptionHtml ?? "") }
+    };
+
+    async Task<AzdoWorkItem> TryCreate(object[] patch, CancellationToken ct2)
+    {
+        var url = $"{project}/_apis/wit/workitems/${Uri.EscapeDataString(type)}?api-version=7.1-preview.3";
+        using var req = new HttpRequestMessage(HttpMethod.Post, url);
+        req.Content = new StringContent(JsonSerializer.Serialize(patch), Encoding.UTF8, "application/json-patch+json");
+
+        using var res = await _http.SendAsync(req, ct2);
+        var body = await res.Content.ReadAsStringAsync(ct2);
+        if (!res.IsSuccessStatusCode)
+            throw new Exception($"WI Create failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
+
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+        var id = root.TryGetProperty("id", out var idEl) ? idEl.GetInt32() : 0;
+        // Return minimal AzdoWorkItem; caller can refetch if needed
+        return new AzdoWorkItem(id, root);
+    }
+
+    try
+    {
+        return await TryCreate(patchWithStateAndPriority, ct);
+    }
+    catch (Exception ex)
+    {
+        var msg = ex.Message.ToLowerInvariant();
+        // Retry without priority/state if process rejects
+        if (msg.Contains("priority") || msg.Contains("microsoft.vsts.common.priority") || msg.Contains("state"))
+        {
+            try { return await TryCreate(patchWithState, ct); } catch { return await TryCreate(patchMinimal, ct); }
+        }
+        // fallback
+        return await TryCreate(patchMinimal, ct);
+    }
+}
+
 public async Task<List<AzdoUserDto>> GetAzdoUsersAsync(int top, CancellationToken ct)
     {
         var org = GetOrganizationName();

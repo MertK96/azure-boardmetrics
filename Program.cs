@@ -112,6 +112,7 @@ app.MapGet("/api/code-review/items", async (AzdoClient az, string? assignee, int
         {
             Id = wi.Id,
             Title = wi.GetString("System.Title"),
+            DescriptionHtml = wi.GetString("System.Description"),
             State = wi.GetString("System.State"),
             BoardColumn = wi.GetString("System.BoardColumn"),
             AssignedToDisplayName = assigned?.DisplayName,
@@ -202,7 +203,7 @@ ORDER BY [System.ChangedDate] DESC";
     var fetched = new List<AzdoWorkItem>();
     foreach (var chunk in ids.Chunk(200))
     {
-        var batch = await az.GetWorkItemsBatchAsync(chunk, ct);
+        var batch = await az.GetWorkItemsBatchAsync(chunk, ct, extraFields: new[]{"System.Description"});
         fetched.AddRange(batch);
     }
 
@@ -319,6 +320,72 @@ app.MapMethods("/api/assignments/{id:int}/assignee", new[] { "PATCH" }, async (i
     catch (Exception ex)
     {
         return Results.Problem(ex.Message);
+    }
+});
+
+
+
+/* -------------------- Atanacak Maddeler: Inline Güncelleme & Yeni Madde -------------------- */
+
+static string NormalizeHtmlFromInput(string? input)
+{
+    var s = (input ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(s)) return "";
+    // If it looks like HTML, keep it; otherwise encode as HTML and keep newlines.
+    if (s.Contains('<') && s.Contains('>')) return s;
+    var enc = WebUtility.HtmlEncode(s);
+    return enc.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "<br/>");
+}
+
+app.MapMethods("/api/assignments/{id:int}/assignee", new[] { "PATCH", "POST" }, async (AzdoClient az, int id, UpdateAssigneeRequest req, CancellationToken ct) =>
+{
+    try
+    {
+        await az.UpdateWorkItemAssignedToAsync(id, req.AssigneeUniqueName ?? "", ct);
+        return Results.Ok(new { ok = true, id });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 500);
+    }
+});
+
+app.MapMethods("/api/workitems/{id:int}/description", new[] { "PATCH", "POST" }, async (AzdoClient az, int id, UpdateDescriptionRequest req, CancellationToken ct) =>
+{
+    try
+    {
+        var html = NormalizeHtmlFromInput(req.Description);
+        await az.UpdateWorkItemDescriptionAsync(id, html, ct);
+        return Results.Ok(new { ok = true, id });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 500);
+    }
+});
+
+app.MapPost("/api/workitems", async (AzdoClient az, CreateWorkItemRequest req, CancellationToken ct) =>
+{
+    try
+    {
+        var type = (req.WorkItemType ?? "").Trim();
+        if (!type.Equals("Bug", StringComparison.OrdinalIgnoreCase) &&
+            !type.Equals("Product Backlog Item", StringComparison.OrdinalIgnoreCase))
+            return Results.BadRequest(new { message = "WorkItemType sadece 'Bug' veya 'Product Backlog Item' olabilir." });
+
+        var title = (req.Title ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(title))
+            return Results.BadRequest(new { message = "Title boş olamaz." });
+
+        var html = NormalizeHtmlFromInput(req.Description);
+        var pri = req.Priority is null ? 4 : Math.Clamp(req.Priority.Value, 1, 4);
+
+        var created = await az.CreateWorkItemAsync(type, title, html, pri, ct);
+        return Results.Ok(new { ok = true, id = created.Id });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 500);
     }
 });
 
@@ -1026,6 +1093,7 @@ public sealed class AssignableItemDto
 
     public int Id { get; set; }
     public string? Title { get; set; }
+    public string? DescriptionHtml { get; set; }
     public string? WorkItemType { get; set; }
     public string? State { get; set; }
 
@@ -1125,5 +1193,25 @@ public sealed class AssignAssigneeRequest
 {
     // Empty / null => Unassigned
     public string? AssigneeUniqueName { get; set; }
+}
+
+
+
+public sealed class UpdateAssigneeRequest
+{
+    public string? AssigneeUniqueName { get; set; }
+}
+
+public sealed class UpdateDescriptionRequest
+{
+    public string? Description { get; set; }
+}
+
+public sealed class CreateWorkItemRequest
+{
+    public string? WorkItemType { get; set; } // "Bug" | "Product Backlog Item"
+    public string? Title { get; set; }
+    public string? Description { get; set; } // plain text or html
+    public int? Priority { get; set; } // 1..4
 }
 

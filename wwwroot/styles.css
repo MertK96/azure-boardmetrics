@@ -249,3 +249,10 @@ td.cellForecastOver{background:#2a2116}
 .perfMetrics .mVal{font-size:14px;font-weight:700;color:#e6edf3;margin-top:2px}
 
 #tbl_perf_summary th,#tbl_perf_summary td{padding:6px 8px;}
+
+
+/* Assign card description */
+.aDescRow{ display:flex; gap:8px; align-items:flex-start; margin-top:8px; }
+.aDescEdit{ background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10); color:#fff; border-radius:8px; padding:4px 8px; cursor:pointer; }
+.aDescEdit:hover{ background:rgba(255,255,255,.10); }
+.aDescText{ flex:1; color:rgba(255,255,255,.78); font-size:12px; line-height:1.35; cursor:pointer; white-space:normal; word-break:break-word; }
