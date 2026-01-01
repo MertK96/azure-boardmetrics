@@ -809,17 +809,18 @@ function createAssignCard(item){
     <div class="aTop">
       <a class="aId" href="${buildBoardUrl(item.id)}" target="_blank" rel="noreferrer">#${item.id}</a>
       <div class="aType">${escapeHtml(typeLabel)}</div>
-    </div>
     <div class="aTitle">${escapeHtml(title)}</div>
     <div class="aMeta">
       <span class="aState">${escapeHtml(state)}</span>
       ${renderAssigneePicker(item)}
-    </div>
     <div class="aDates">
       <span>Created: ${fmtDate(item.createdDate)}</span>
       <span>Changed: ${fmtDate(item.changedDate)}</span>
-    </div>
     ${renderCriticalHint(item)}
+    <div class="aDescRow">
+      <button type="button" class="aDescEdit" title="Açıklama düzenle">✎</button>
+      <div class="aDescText">${escapeHtml(truncateText(htmlToText(item.descriptionHtml||''), 180))}</div>
+    </div>
     <div class="aTags">${renderTagChips(tags)}</div>
 
 
@@ -1761,23 +1762,18 @@ function renderPerfMetrics(){
     <div class="metric">
       <div class="mLabel">Done (adet)</div>
       <div class="mVal">${totalCnt}</div>
-    </div>
     <div class="metric">
       <div class="mLabel">Toplam Effort</div>
       <div class="mVal">${n2(totalEff)}</div>
-    </div>
     <div class="metric">
       <div class="mLabel">Bug Effort</div>
       <div class="mVal">${n2(bugEff)} <span class="muted">(${bugCnt})</span></div>
-    </div>
     <div class="metric">
       <div class="mLabel">Backlog Effort</div>
       <div class="mVal">${n2(backlogEff)} <span class="muted">(${backlogCnt})</span></div>
-    </div>
     <div class="metric">
       <div class="mLabel">En yüksek gün</div>
       <div class="mVal">${n2(maxDayEff)}${maxDay ? ' • ' + maxDay : ''}</div>
-    </div>
   `;
 }
 
@@ -2230,10 +2226,6 @@ function openCreateWorkItemModal(){
     await loadAssignableItems(); // refresh to show new item
   });
 }
-  <div class="aDescRow">
-          <button type="button" class="aDescEdit" title="Açıklama düzenle">✎</button>
-          <div class="aDescText">${escapeHtml(truncateText(htmlToText(item.descriptionHtml||''), 180))}</div>
-        </div>
 
 
 function truncateText(s, maxLen){
