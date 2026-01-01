@@ -277,6 +277,142 @@ function rewriteDescriptionHtml(html){
   }
 }
 
+// Rich description editor helpers
+function _proxyImg(src){
+  return `/api/proxy/image?url=${encodeURIComponent(src)}`;
+}
+
+function htmlToEditorDisplayHtml(html){
+  if(!html) return '';
+  try{
+    const doc = new DOMParser().parseFromString(String(html), 'text/html');
+
+    // remove scripts
+    doc.querySelectorAll('script').forEach(s => s.remove());
+
+    // remove inline event handlers
+    doc.body.querySelectorAll('*').forEach(el => {
+      [...el.attributes].forEach(a => {
+        const n = (a.name || '').toLowerCase();
+        if(n.startsWith('on')) el.removeAttribute(a.name);
+      });
+    });
+
+    // rewrite imgs to proxy but keep original in data-src-original
+    doc.body.querySelectorAll('img').forEach(img => {
+      const src = img.getAttribute('src') || '';
+      if(!src) return;
+      if(img.getAttribute('data-src-original')) return;
+
+      if(/^\/api\/proxy\/image\?url=/i.test(src)){
+        try{
+          const u = new URL(src, location.origin);
+          const orig = u.searchParams.get('url');
+          if(orig){
+            img.setAttribute('data-src-original', orig);
+            img.setAttribute('src', _proxyImg(orig));
+          }
+        }catch{}
+      }else if(/^https?:/i.test(src)){
+        img.setAttribute('data-src-original', src);
+        img.setAttribute('src', _proxyImg(src));
+      }
+
+      img.style.maxWidth = '100%';
+      img.style.height = 'auto';
+      img.style.display = 'block';
+    });
+
+    // make links safe
+    doc.body.querySelectorAll('a').forEach(a => {
+      a.setAttribute('target','_blank');
+      a.setAttribute('rel','noreferrer');
+    });
+
+    return doc.body.innerHTML;
+  }catch{
+    return '';
+  }
+}
+
+function editorDisplayToSaveHtml(displayHtml){
+  const html = String(displayHtml || '');
+  try{
+    const doc = new DOMParser().parseFromString(`<div id="_r">${html}</div>`, 'text/html');
+    const root = doc.getElementById('_r');
+    if(!root) return html;
+
+    root.querySelectorAll('img').forEach(img => {
+      const orig = img.getAttribute('data-src-original');
+      if(orig){
+        img.setAttribute('src', orig);
+        img.removeAttribute('data-src-original');
+      }else{
+        const src = img.getAttribute('src') || '';
+        if(/^\/api\/proxy\/image\?url=/i.test(src)){
+          try{
+            const u = new URL(src, location.origin);
+            const o = u.searchParams.get('url');
+            if(o) img.setAttribute('src', o);
+          }catch{}
+        }
+      }
+      // keep size hints minimal
+      img.style.maxWidth = '100%';
+      img.style.height = 'auto';
+    });
+
+    // remove any scripts just in case
+    root.querySelectorAll('script').forEach(s => s.remove());
+    root.querySelectorAll('*').forEach(el => {
+      [...el.attributes].forEach(a => {
+        const n = (a.name || '').toLowerCase();
+        if(n.startsWith('on')) el.removeAttribute(a.name);
+      });
+    });
+
+    return root.innerHTML;
+  }catch{
+    return html;
+  }
+}
+
+async function uploadWorkItemImage(workItemId, file){
+  const fd = new FormData();
+  const name = (file && file.name) ? file.name : `pasted-${Date.now()}.png`;
+  fd.append('file', file, name);
+  const res = await fetch(`/api/workitems/${workItemId}/attachments`, { method:'POST', body: fd });
+  if(!res.ok){
+    const t = await res.text();
+    throw new Error(t || `HTTP ${res.status}`);
+  }
+  const j = await res.json();
+  if(!j || !j.url) throw new Error('Attachment url alınamadı');
+  return String(j.url);
+}
+
+function insertHtmlAtCaret(html){
+  const sel = window.getSelection && window.getSelection();
+  if(!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  const el = document.createElement('div');
+  el.innerHTML = html;
+  const frag = document.createDocumentFragment();
+  let node, lastNode;
+  while((node = el.firstChild)){
+    lastNode = frag.appendChild(node);
+  }
+  range.insertNode(frag);
+  if(lastNode){
+    const r = range.cloneRange();
+    r.setStartAfter(lastNode);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
+}
+
 async function load(){
   await ensureConfig();
   $('status').textContent = 'yükleniyor...';
@@ -2171,6 +2307,22 @@ function ensureModalStyles(){
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     line-height:1.45;
   }
+
+  .richEditor{
+    width:100%;
+    min-height:520px;
+    max-height:66vh;
+    overflow:auto;
+    padding:12px;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.10);
+    color:#e6edf3;
+    border-radius:12px;
+    line-height:1.45;
+  }
+  .richEditor:focus{ outline:1px solid rgba(43,116,255,.65); }
+  .richEditor img{ max-width:100%; height:auto; display:block; margin:8px 0; }
+  .mutedHint{ margin-top:8px; font-size:12px; color:rgba(255,255,255,.65); }
   .modalActions{ display:flex; gap:10px; justify-content:flex-end; margin-top:12px; }
   .btnPrimary{
     background:#2b74ff; border:0; padding:9px 12px;
@@ -2236,7 +2388,7 @@ async function patchDescription(workItemId, descriptionText){
   const res = await fetch(`/api/workitems/${workItemId}/description`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ description: descriptionText })
+    body: JSON.stringify({ descriptionHtml: descriptionText })
   });
   if(!res.ok){
     const t = await res.text();
@@ -2262,36 +2414,66 @@ function openEditDescriptionModalGeneric(workItemId, currentHtml, afterSave){
   const body = document.createElement('div');
   body.className = 'modalBody';
 
-  const ta = document.createElement('textarea');
-  // Not: Azure Description HTML olabilir; editor şimdilik plain-text.
-  // Görsel içeren açıklamalarda metin yoksa boş görünebilir (görseller korunur).
-  ta.value = htmlToText(currentHtml || '');
-  body.appendChild(ta);
-
-  // Önizleme (görselleri de göstermek için)
-  if(currentHtml && String(currentHtml).trim()){
-    const prevLabel = document.createElement('div');
-    prevLabel.style.marginTop = '10px';
-    prevLabel.style.fontSize = '12px';
-    prevLabel.style.color = 'rgba(255,255,255,.70)';
-    prevLabel.textContent = 'Önizleme';
-    body.appendChild(prevLabel);
-
-    const preview = document.createElement('div');
-    preview.className = 'desc';
-    preview.style.maxHeight = '260px';
-    preview.style.overflow = 'auto';
-    preview.style.border = '1px solid #223044';
-    preview.style.borderRadius = '12px';
-    preview.style.padding = '10px';
-    preview.style.marginTop = '6px';
-    preview.innerHTML = rewriteDescriptionHtml(String(currentHtml));
-    body.appendChild(preview);
+  const editor = document.createElement('div');
+  editor.className = 'richEditor';
+  editor.contentEditable = 'true';
+  editor.setAttribute('spellcheck','false');
+  editor.innerHTML = htmlToEditorDisplayHtml(currentHtml || '');
+  if(!editor.textContent.trim() && !editor.querySelector('img')){
+    editor.innerHTML = '<div><br/></div>';
   }
+  body.appendChild(editor);
+
+  const hint = document.createElement('div');
+  hint.className = 'mutedHint';
+  hint.textContent = 'Resim eklemek için kopyala-yapıştır (Ctrl+V) yapabilirsin. Kaydet dediğinde Azure DevOps açıklaması güncellenir.';
+  body.appendChild(hint);
+
+  const uploadState = document.createElement('div');
+  uploadState.className = 'mutedHint';
+  uploadState.style.display = 'none';
+  uploadState.textContent = 'Görsel yükleniyor...';
+  body.appendChild(uploadState);
+
+  let isUploading = false;
+
+  editor.addEventListener('paste', async (e)=>{
+    try{
+      const cd = e.clipboardData;
+      if(!cd || !cd.items || !cd.items.length) return;
+
+      const imgItems = [...cd.items].filter(it => it && it.kind === 'file' && (it.type||'').toLowerCase().startsWith('image/'));
+      if(!imgItems.length) return;
+
+      e.preventDefault();
+
+      for(const it of imgItems){
+        const file = it.getAsFile && it.getAsFile();
+        if(!file) continue;
+
+        isUploading = true;
+        uploadState.style.display = 'block';
+
+        const originalUrl = await uploadWorkItemImage(workItemId, file);
+        const proxyUrl = _proxyImg(originalUrl);
+        const html = `<img src="${escapeHtml(proxyUrl)}" data-src-original="${escapeHtml(originalUrl)}" />`;
+        insertHtmlAtCaret(html);
+        insertHtmlAtCaret('<div><br/></div>');
+      }
+    }catch(err){
+      console.error(err);
+      alert('Görsel eklenemedi: ' + (err && err.message ? err.message : String(err)));
+    }finally{
+      isUploading = false;
+      uploadState.style.display = 'none';
+    }
+  });
 
   openModal(`#${workItemId} Açıklama`, body, async ()=>{
-    const r = await patchDescription(workItemId, ta.value);
-    const newHtml = (r && r.descriptionHtml != null) ? String(r.descriptionHtml) : textToHtml(ta.value);
+    if(isUploading) throw new Error('Görsel yüklemesi bitmeden kaydedemezsin.');
+    const html = editorDisplayToSaveHtml(editor.innerHTML);
+    const r = await patchDescription(workItemId, html);
+    const newHtml = (r && r.descriptionHtml != null) ? String(r.descriptionHtml) : html;
     if(typeof afterSave === 'function') afterSave(newHtml);
   });
 

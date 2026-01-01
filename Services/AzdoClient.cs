@@ -368,6 +368,48 @@ public async Task UpdateWorkItemDescriptionAsync(int id, string descriptionHtml,
     }
 }
 
+    // Upload attachment (used for pasting images into description)
+    // Returns the attachment URL (can be embedded into System.Description as <img src="...">)
+    public async Task<string> UploadAttachmentAsync(string fileName, byte[] bytes, string? contentType, CancellationToken ct)
+    {
+        var project = (_opt.Project ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(project))
+            throw new Exception("Project boş. AZDO_PROJECT/appsettings üzerinden proje adı gerekli.");
+
+        if (bytes is null || bytes.Length == 0)
+            throw new Exception("Attachment bytes boş.");
+
+        var safeName = string.IsNullOrWhiteSpace(fileName)
+            ? $"pasted-{DateTime.UtcNow:yyyyMMdd-HHmmss}.png"
+            : fileName.Trim();
+
+        if (safeName.Length > 120) safeName = safeName.Substring(0, 120);
+
+        var url = $"{project}/_apis/wit/attachments?fileName={Uri.EscapeDataString(safeName)}&api-version=7.1";
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, url);
+        var ctValue = string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType!;
+        req.Content = new ByteArrayContent(bytes);
+        req.Content.Headers.ContentType = new MediaTypeHeaderValue(ctValue);
+
+        using var res = await _http.SendAsync(req, ct);
+        var body = await res.Content.ReadAsStringAsync(ct);
+
+        if (!res.IsSuccessStatusCode)
+            throw new Exception($"WI UploadAttachment failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
+
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+
+        if (root.TryGetProperty("url", out var urlEl) && urlEl.ValueKind == JsonValueKind.String)
+        {
+            var attUrl = urlEl.GetString();
+            if (!string.IsNullOrWhiteSpace(attUrl)) return attUrl!;
+        }
+
+        throw new Exception("Attachment upload succeeded but response did not include url.");
+    }
+
 public async Task<AzdoWorkItem> CreateWorkItemAsync(string workItemType, string title, string descriptionHtml, int priority, CancellationToken ct)
 {
     var project = (_opt.Project ?? "").Trim();

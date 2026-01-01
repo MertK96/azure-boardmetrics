@@ -412,24 +412,31 @@ app.MapMethods("/api/workitems/{id:int}/description", new[] { "PATCH", "POST" },
 {
     try
     {
-        var input = (req.Description ?? string.Empty);
-        var trimmed = input.Trim();
+        // Prefer DescriptionHtml (rich editor). If not provided, fall back to Description (plain text).
+        var rawHtml = (req.DescriptionHtml ?? string.Empty).Trim();
+        var rawText = (req.Description ?? string.Empty).Trim();
+
+        var usingHtml = !string.IsNullOrWhiteSpace(req.DescriptionHtml);
+        var input = usingHtml ? rawHtml : rawText;
 
         // Boş ise tamamen temizle (Azure null istemiyor; boş string OK)
-        if (string.IsNullOrWhiteSpace(trimmed))
+        if (string.IsNullOrWhiteSpace(input))
         {
             await az.UpdateWorkItemDescriptionAsync(id, "", ct);
             return Results.Ok(new { ok = true, id, descriptionHtml = "" });
         }
 
-        var newHtml = NormalizeHtmlFromInput(trimmed);
+        var newHtml = usingHtml ? input : NormalizeHtmlFromInput(input);
 
-        // Mevcut açıklamadaki görselleri koru (kullanıcı sadece metni güncelliyorsa)
-        var existing = await az.GetWorkItemDescriptionHtmlAsync(id, null, ct);
-        var imgs = ExtractImgTags(existing);
-        if (!string.IsNullOrWhiteSpace(imgs) && !newHtml.Contains("<img", StringComparison.OrdinalIgnoreCase))
+        // Back-compat: Eğer kullanıcı sadece plain-text gönderiyorsa ve img yoksa mevcut img'leri koru.
+        if (!usingHtml)
         {
-            newHtml = newHtml + "<br/><br/>" + imgs;
+            var existing = await az.GetWorkItemDescriptionHtmlAsync(id, null, ct);
+            var imgs = ExtractImgTags(existing);
+            if (!string.IsNullOrWhiteSpace(imgs) && !newHtml.Contains("<img", StringComparison.OrdinalIgnoreCase))
+            {
+                newHtml = newHtml + "<br/><br/>" + imgs;
+            }
         }
 
         await az.UpdateWorkItemDescriptionAsync(id, newHtml, ct);
@@ -453,6 +460,38 @@ app.MapGet("/api/proxy/image", async (HttpContext http, AzdoClient az, string ur
         var (bytes, contentType) = await az.GetBinaryAsync(uri.ToString(), ct);
         http.Response.Headers.CacheControl = "private, max-age=300";
         return Results.File(bytes, contentType ?? "application/octet-stream");
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message, statusCode: 500);
+    }
+});
+
+
+// Upload an image attachment for a work item (used by Description editor paste)
+app.MapPost("/api/workitems/{id:int}/attachments", async (HttpRequest req, AzdoClient az, int id, CancellationToken ct) =>
+{
+    try
+    {
+        if (!req.HasFormContentType)
+            return Results.BadRequest(new { message = "multipart/form-data bekleniyor" });
+
+        var form = await req.ReadFormAsync(ct);
+        var file = form.Files.FirstOrDefault();
+        if (file is null || file.Length <= 0)
+            return Results.BadRequest(new { message = "file boş" });
+
+        // Avoid huge uploads
+        const long maxBytes = 10 * 1024 * 1024; // 10MB
+        if (file.Length > maxBytes)
+            return Results.BadRequest(new { message = "Dosya çok büyük (max 10MB)" });
+
+        await using var ms = new MemoryStream();
+        await file.CopyToAsync(ms, ct);
+        var bytes = ms.ToArray();
+
+        var attUrl = await az.UploadAttachmentAsync(file.FileName ?? "pasted.png", bytes, file.ContentType, ct);
+        return Results.Ok(new { ok = true, url = attUrl });
     }
     catch (Exception ex)
     {
@@ -1302,6 +1341,7 @@ public sealed class UpdateAssigneeRequest
 public sealed class UpdateDescriptionRequest
 {
     public string? Description { get; set; }
+    public string? DescriptionHtml { get; set; }
 }
 
 public sealed class CreateWorkItemRequest
