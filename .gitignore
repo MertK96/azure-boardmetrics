@@ -1,0 +1,9 @@
+# build outputs
+bin/
+obj/
+
+# local scripts / secrets
+test_fields.ps1
+
+# local settings (opsiyonel ama iyi)
+appsettings.Development.json
