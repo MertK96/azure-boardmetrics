@@ -4,7 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>AZDO Board Metrics MVP</title>
-  <link rel="stylesheet" href="/styles.css?v=20260101-critical1"/>
+  <link rel="stylesheet" href="/styles.css?v=20260101-perf5"/>
 </head>
 <body>
   <header>
@@ -244,9 +244,9 @@
           <section class="filters perfFilters">
             <div class="filterRow">
               <div class="filterLeft">
-                <label class="perfUsers">
-                  Users:
-                  <select id="perf_users" multiple size="6"></select>
+                <label>
+                  User:
+                  <select id="perf_user"></select>
                 </label>
 
                 <label>
@@ -309,15 +309,15 @@
 
         <div class="perfRight">
           <section class="perfChartWrap">
-            <div class="sectionTitle">Done Effort (Mum Grafik)</div>
+            <div class="sectionTitle">Done Effort (Bug vs Backlog)</div>
             <div class="chartCard">
               <div id="perf_chart_title" class="chartTitle"></div>
               <div id="perf_metrics" class="perfMetrics"></div>
               <div class="chartCanvasWrap">
-                <canvas id="perf_candle" width="1200" height="260"></canvas>
+                <canvas id="perf_candle" width="2000" height="520"></canvas>
                 <div id="perf_tip" class="tooltip hidden"></div>
               </div>
-              <div class="hint">Mum üstüne gelince o gün kapanan maddeler ve eforları (ID→Effort) görünür.</div>
+              <div class="hint">Grafik üstüne gelince o gün tamamlanan Bug/Backlog maddeleri ve eforları (ID→Effort) görünür.</div>
             </div>
           </section>
         </div>
@@ -373,6 +373,6 @@
 
 </main>
 
-  <script src="/app.js?v=20260101-critical1"></script>
+  <script src="/app.js?v=20260101-perf5"></script>
 </body>
 </html>

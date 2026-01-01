@@ -11,17 +11,22 @@ let assignColumnSort = { 0: 'default', 1: 'default', 2: 'default', 3: 'default',
 
 let perfLoaded = false;
 let perfInitDone = false;
-let perfSelectedUsers = [];
 let perfActiveUser = null;
 let perfSummary = [];
 let perfCandles = [];
 let perfDoneItems = [];
+let perfDailyStacks = [];
 let azdoUsersLoaded = false;
 let azdoUsers = [];
 
 let activeTab = 'note'; // 'note' | 'comment'
 
 function pad2(n){ return String(n).padStart(2,'0'); }
+
+function n2(v){
+  const x = Math.round((Number(v) || 0) * 100) / 100;
+  return x.toFixed(2).replace(/\.00$/, '');
+}
 
 function ymdLocal(d){
   return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
@@ -1237,13 +1242,10 @@ function initPerfView(){
   // Users selector (multi-select list)
   renderPerfUsersSelect();
 
-  const usersSel = $('perf_users');
+  const usersSel = $('perf_user');
   if(usersSel){
     usersSel.addEventListener('change', () => {
-      perfSelectedUsers = Array.from(usersSel.selectedOptions).map(o => o.value);
-      if(!perfActiveUser || !perfSelectedUsers.includes(perfActiveUser)){
-        perfActiveUser = perfSelectedUsers[0] || null;
-      }
+      perfActiveUser = usersSel.value || null;
       loadPerf();
     });
   }
@@ -1274,40 +1276,40 @@ function perfUserLabel(u){
 }
 
 function renderPerfUsersSelect(){
-  const sel = $('perf_users');
+  const sel = $('perf_user');
   if(!sel) return;
+
+  // Ensure native dropdown (not listbox)
+  sel.multiple = false;
+  sel.removeAttribute('multiple');
+  sel.removeAttribute('size');
 
   sel.innerHTML = '';
 
   const users = azdoUsers || [];
   if(users.length === 0) return;
 
-  // default: select first user
-  if(!perfSelectedUsers || perfSelectedUsers.length === 0){
+  // default: first user
+  if(!perfActiveUser){
     const first = users[0];
     const key = (first.uniqueName || first.displayName || '').trim();
-    if(key){
-      perfSelectedUsers = [key];
-      perfActiveUser = key;
-    }
+    if(key) perfActiveUser = key;
   }
 
   for(const u of users){
     const key = (u.uniqueName || u.displayName || '').trim();
     if(!key) continue;
-
     const op = document.createElement('option');
     op.value = key;
     op.textContent = perfUserLabel(u);
-    op.selected = perfSelectedUsers.includes(key);
+    if(key === perfActiveUser) op.selected = true;
     sel.appendChild(op);
   }
 
-  // ensure at least 1 selected
-  if(sel.selectedOptions.length === 0 && sel.options.length > 0){
-    sel.options[0].selected = true;
-    perfSelectedUsers = [sel.options[0].value];
-    perfActiveUser = sel.options[0].value;
+  // ensure selected exists
+  if(sel.options.length > 0 && !sel.value){
+    sel.selectedIndex = 0;
+    perfActiveUser = sel.value;
   }
 }
 
@@ -1320,7 +1322,7 @@ async function loadPerfSummary(){
   const status = $('perf_status');
   if(status) status.textContent = 'yükleniyor...';
 
-  if(!perfSelectedUsers || perfSelectedUsers.length === 0){
+  if(!perfActiveUser){
     perfSummary = [];
     renderPerfSummary();
     if(status) status.textContent = 'User seçilmedi.';
@@ -1328,7 +1330,7 @@ async function loadPerfSummary(){
   }
 
   const params = new URLSearchParams();
-  params.set('users', perfSelectedUsers.join(','));
+  params.set('users', perfActiveUser);
   params.set('top', '2000');
 
   let res;
@@ -1396,11 +1398,50 @@ function getPerfPeriod(){
   return { year, month, week };
 }
 
+
+function buildPerfDailyStacks(items){
+  const byDate = new Map();
+
+  for(const it of (items || [])){
+    const cd = it.completedDate;
+    if(!cd) continue;
+    const d = new Date(cd);
+    if(isNaN(d.getTime())) continue;
+
+    const dateKey = d.toLocaleDateString('sv-SE'); // yyyy-MM-dd (local)
+    const type = (it.workItemType || '').toLowerCase();
+
+    let bucket = byDate.get(dateKey);
+    if(!bucket){
+      bucket = { date: dateKey, bugEff: 0, backlogEff: 0, bugItems: [], backlogItems: [] };
+      byDate.set(dateKey, bucket);
+    }
+
+    const eff = Number(it.effort) || 0;
+    const id = Number(it.id) || 0;
+
+    const isBug = type === 'bug' || type.includes('bug');
+
+    // Chart is Bug vs Backlog: treat everything else as Backlog bucket
+    if(isBug){
+      bucket.bugEff += eff;
+      bucket.bugItems.push({ id, effort: eff });
+    }else{
+      bucket.backlogEff += eff;
+      bucket.backlogItems.push({ id, effort: eff });
+    }
+  }
+
+  return Array.from(byDate.values()).sort((a,b) => a.date.localeCompare(b.date));
+}
+
+
 async function loadPerfDone(){
   const status = $('perf_status');
   if(!perfActiveUser){
     perfCandles = [];
     perfDoneItems = [];
+    perfDailyStacks = [];
     renderPerfChart();
     renderPerfDoneTable();
     return;
@@ -1432,6 +1473,7 @@ async function loadPerfDone(){
   const data = await res.json();
   perfCandles = Array.isArray(data?.candles) ? data.candles : [];
   perfDoneItems = Array.isArray(data?.items) ? data.items : [];
+  perfDailyStacks = buildPerfDailyStacks(perfDoneItems);
 
   const title = $('perf_chart_title');
   if(title){
@@ -1474,48 +1516,61 @@ function renderPerfMetrics(){
   if(!el) return;
 
   const items = perfDoneItems || [];
-  const candles = perfCandles || [];
 
-  const totalEff = items.reduce((s, it) => s + (Number(it.effort) || 0), 0);
-  const cnt = items.length;
-  const avgEff = cnt ? (totalEff / cnt) : 0;
+  let bugCnt = 0, backlogCnt = 0;
+  let bugEff = 0, backlogEff = 0;
+  let totalCnt = 0, totalEff = 0;
 
-  let daysWith = 0;
-  let maxClose = 0;
-  let maxDate = '';
-  for(const c of candles){
-    const close = Number(c.close) || 0;
-    if((c.items || []).length > 0) daysWith++;
-    if(close >= maxClose){
-      maxClose = close;
-      maxDate = c.date || '';
+  for(const it of items){
+    const eff = Number(it.effort) || 0;
+    totalCnt += 1;
+    totalEff += eff;
+
+    const t = (it.workItemType || '').toLowerCase();
+    if(t === 'bug' || t.includes('bug')){
+      bugCnt += 1;
+      bugEff += eff;
+    }else{
+      backlogCnt += 1;
+      backlogEff += eff;
     }
   }
 
-  const n2 = (v) => {
-    const x = Math.round((Number(v) || 0) * 100) / 100;
-    return x.toFixed(2).replace(/\.00$/, '');
-  };
+  // max day by (bug+backlog) effort
+  let maxDay = '';
+  let maxDayEff = 0;
+  for(const d of (perfDailyStacks || [])){
+    const v = (Number(d.backlogEff) || 0) + (Number(d.bugEff) || 0);
+    if(v > maxDayEff){
+      maxDayEff = v;
+      maxDay = d.date;
+    }
+  }
 
   el.innerHTML = `
     <div class="metric">
       <div class="mLabel">Done (adet)</div>
-      <div class="mVal">${cnt}</div>
+      <div class="mVal">${totalCnt}</div>
     </div>
     <div class="metric">
       <div class="mLabel">Toplam Effort</div>
       <div class="mVal">${n2(totalEff)}</div>
     </div>
     <div class="metric">
-      <div class="mLabel">Ortalama Effort / Item</div>
-      <div class="mVal">${n2(avgEff)}</div>
+      <div class="mLabel">Bug Effort</div>
+      <div class="mVal">${n2(bugEff)} <span class="muted">(${bugCnt})</span></div>
     </div>
     <div class="metric">
-      <div class="mLabel">En yüksek gün (Close)</div>
-      <div class="mVal">${n2(maxClose)}${maxDate ? ' • ' + maxDate : ''}</div>
+      <div class="mLabel">Backlog Effort</div>
+      <div class="mVal">${n2(backlogEff)} <span class="muted">(${backlogCnt})</span></div>
+    </div>
+    <div class="metric">
+      <div class="mLabel">En yüksek gün</div>
+      <div class="mVal">${n2(maxDayEff)}${maxDay ? ' • ' + maxDay : ''}</div>
     </div>
   `;
 }
+
 
 function perfHideTip(){
   const tip = $('perf_tip');
@@ -1525,7 +1580,7 @@ function perfHideTip(){
 function perfOnHover(e){
   const canvas = $('perf_candle');
   const tip = $('perf_tip');
-  if(!canvas || !tip || !perfCandles || perfCandles.length === 0) return;
+  if(!canvas || !tip || !perfDailyStacks || perfDailyStacks.length === 0) return;
 
   const rect = canvas.getBoundingClientRect();
   const x = e.clientX - rect.left;
@@ -1533,22 +1588,32 @@ function perfOnHover(e){
 
   // Chart layout must match renderPerfChart()
   const W = canvas.width;
-  const H = canvas.height;
-  const pad = { l: 46, r: 12, t: 18, b: 28 };
+  const pad = { l: 56, r: 14, t: 18, b: 34 };
   const innerW = W - pad.l - pad.r;
 
-  const n = perfCandles.length;
+  const n = perfDailyStacks.length;
   const step = innerW / Math.max(1, n);
-  const idx = Math.floor((x * (W/rect.width) - pad.l) / step);
+  const xScaled = (x * (W/rect.width));
+  const idx = Math.floor((xScaled - pad.l) / step);
 
   if(idx < 0 || idx >= n){
     tip.classList.add('hidden');
     return;
   }
 
-  const c = perfCandles[idx];
-  const items = (c.items || []).map(x => `#${x.id}: ${x.effort ?? 0}`).join(', ');
-  tip.textContent = `${c.date}\nOpen: ${c.open ?? 0}  High: ${c.high ?? 0}  Low: ${c.low ?? 0}  Close: ${c.close ?? 0}\n${items || '(madde yok)'}`;
+  const d = perfDailyStacks[idx];
+  const bug = Number(d.bugEff) || 0;
+  const backlog = Number(d.backlogEff) || 0;
+
+  const bugItems = (d.bugItems || []).map(x => `#${x.id}: ${n2(x.effort ?? 0)}`).join(', ');
+  const blItems = (d.backlogItems || []).map(x => `#${x.id}: ${n2(x.effort ?? 0)}`).join(', ');
+
+  tip.textContent =
+`${d.date}
+Backlog: ${n2(backlog)}${blItems ? `
+  ${blItems}` : ''}
+Bug: ${n2(bug)}${bugItems ? `
+  ${bugItems}` : ''}`;
 
   // position
   tip.style.left = Math.min((x+12), rect.width - 30) + 'px';
@@ -1566,107 +1631,123 @@ function renderPerfChart(){
   const W = canvas.width;
   const H = canvas.height;
 
-  // clear
   ctx.clearRect(0,0,W,H);
 
-  const pad = { l: 46, r: 12, t: 18, b: 28 };
-  const innerW = W - pad.l - pad.r;
-  const innerH = H - pad.t - pad.b;
-
-  // axis
-  ctx.strokeStyle = 'rgba(255,255,255,.15)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(pad.l, pad.t);
-  ctx.lineTo(pad.l, pad.t + innerH);
-  ctx.lineTo(pad.l + innerW, pad.t + innerH);
-  ctx.stroke();
-
-  const candles = perfCandles || [];
-  if(candles.length === 0){
+  const days = perfDailyStacks || [];
+  if(days.length === 0){
+    // empty state
     ctx.fillStyle = 'rgba(201,209,217,.65)';
     ctx.font = '14px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-    ctx.fillText('Bu aralıkta Done veri yok.', pad.l + 10, pad.t + 24);
+    ctx.fillText('Seçilen aralıkta done item bulunamadı.', 28, 44);
     return;
   }
 
-  let minV = Infinity;
-  let maxV = -Infinity;
-  for(const c of candles){
-    const lo = (c.low ?? 0);
-    const hi = (c.high ?? 0);
-    if(lo < minV) minV = lo;
-    if(hi > maxV) maxV = hi;
-  }
-  if(!isFinite(minV)) minV = 0;
-  if(!isFinite(maxV)) maxV = 1;
-  if(maxV === minV) maxV = minV + 1;
+  const pad = { l: 56, r: 14, t: 18, b: 34 };
+  const innerW = W - pad.l - pad.r;
+  const innerH = H - pad.t - pad.b;
 
-  function yFor(v){
-    const t = (v - minV) / (maxV - minV);
-    return pad.t + innerH - (t * innerH);
+  // Max total (bug+backlog)
+  let maxV = 0;
+  for(const d of days){
+    const v = (Number(d.backlogEff) || 0) + (Number(d.bugEff) || 0);
+    if(v > maxV) maxV = v;
   }
+  if(maxV <= 0) maxV = 1;
 
-  // Y labels (3 ticks)
-  ctx.fillStyle = 'rgba(201,209,217,.65)';
+  // Axes
+  ctx.strokeStyle = 'rgba(201,209,217,.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  // y axis
+  ctx.moveTo(pad.l, pad.t);
+  ctx.lineTo(pad.l, pad.t + innerH);
+  // x axis
+  ctx.lineTo(pad.l + innerW, pad.t + innerH);
+  ctx.stroke();
+
+  // Y ticks (4)
+  ctx.fillStyle = 'rgba(201,209,217,.60)';
   ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-  for(let i=0; i<=2; i++){
-    const v = minV + (i*(maxV-minV)/2);
-    const y = yFor(v);
-    ctx.fillText(String(Math.round(v*100)/100), 6, y+4);
-    ctx.strokeStyle = 'rgba(255,255,255,.06)';
+  for(let i=0;i<=4;i++){
+    const v = (maxV * (4-i) / 4);
+    const y = pad.t + (innerH * i / 4);
+    ctx.strokeStyle = 'rgba(201,209,217,.12)';
     ctx.beginPath();
     ctx.moveTo(pad.l, y);
-    ctx.lineTo(pad.l+innerW, y);
+    ctx.lineTo(pad.l + innerW, y);
     ctx.stroke();
+
+    ctx.fillStyle = 'rgba(201,209,217,.55)';
+    ctx.fillText(n2(v), 6, y + 4);
   }
 
-  const n = candles.length;
-  const step = innerW / n;
-  const candleW = Math.max(4, step * 0.55);
+  const n = days.length;
+  const step = innerW / Math.max(1, n);
+  const barW = Math.max(10, Math.min(64, step * 0.78));
+  const baseY = pad.t + innerH;
 
-  for(let i=0; i<n; i++){
-    const c = candles[i];
-    const cx = pad.l + i*step + step/2;
+  function hFor(v){
+    return (v / maxV) * innerH;
+  }
 
-    const o = (c.open ?? 0);
-    const cl = (c.close ?? 0);
-    const hi = (c.high ?? 0);
-    const lo = (c.low ?? 0);
+  // Bars
+  for(let i=0;i<n;i++){
+    const d = days[i];
+    const backlog = Number(d.backlogEff) || 0;
+    const bug = Number(d.bugEff) || 0;
 
-    const yHi = yFor(hi);
-    const yLo = yFor(lo);
-    const yO = yFor(o);
-    const yC = yFor(cl);
+    const x0 = pad.l + i*step + (step - barW)/2;
 
-    // wick
-    ctx.strokeStyle = 'rgba(201,209,217,.65)';
-    ctx.beginPath();
-    ctx.moveTo(cx, yHi);
-    ctx.lineTo(cx, yLo);
-    ctx.stroke();
+    const hb = hFor(backlog);
+    const hg = hFor(bug);
 
-    // body
-    const top = Math.min(yO, yC);
-    const bot = Math.max(yO, yC);
-    const h = Math.max(2, bot - top);
+    ctx.lineWidth = 1.5;
 
-    ctx.fillStyle = (cl >= o) ? 'rgba(16,185,129,.25)' : 'rgba(239,68,68,.25)';
-    ctx.strokeStyle = (cl >= o) ? 'rgba(16,185,129,.65)' : 'rgba(239,68,68,.65)';
-    ctx.lineWidth = 1;
+    // backlog (blue)
+    if(hb > 0){
+      ctx.fillStyle = 'rgba(59,130,246,.55)';
+      ctx.strokeStyle = 'rgba(59,130,246,1)';
+      ctx.beginPath();
+      ctx.rect(x0, baseY - hb, barW, hb);
+      ctx.fill();
+      ctx.stroke();
+    }
 
-    ctx.beginPath();
-    ctx.rect(cx - candleW/2, top, candleW, h);
-    ctx.fill();
-    ctx.stroke();
+    // bug (red) stacked
+    if(hg > 0){
+      ctx.fillStyle = 'rgba(239,68,68,.55)';
+      ctx.strokeStyle = 'rgba(239,68,68,1)';
+      ctx.beginPath();
+      ctx.rect(x0, baseY - hb - hg, barW, hg);
+      ctx.fill();
+      ctx.stroke();
+    }
 
-    // X labels: every ~5
-    if(n <= 12 || (i % Math.ceil(n/10) === 0)){
+    // X labels
+    if(n <= 16 || (i % Math.ceil(n/12) === 0)){
       ctx.fillStyle = 'rgba(201,209,217,.55)';
       ctx.font = '11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-      ctx.fillText(String(c.date).slice(5), cx - 18, pad.t + innerH + 18);
+      const lbl = String(d.date).slice(5); // MM-dd
+      ctx.fillText(lbl, x0 - 2, baseY + 18);
     }
   }
+
+  // Legend
+  const lx = pad.l + 8;
+  const ly = pad.t + 6;
+  ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+
+  ctx.fillStyle = 'rgba(59,130,246,.55)';
+  ctx.strokeStyle = 'rgba(59,130,246,1)';
+  ctx.beginPath(); ctx.rect(lx, ly, 10, 10); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(201,209,217,.80)';
+  ctx.fillText('Backlog', lx + 14, ly + 10);
+
+  ctx.fillStyle = 'rgba(239,68,68,.55)';
+  ctx.strokeStyle = 'rgba(239,68,68,1)';
+  ctx.beginPath(); ctx.rect(lx + 84, ly, 10, 10); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(201,209,217,.80)';
+  ctx.fillText('Bug', lx + 98, ly + 10);
 }
 
 
