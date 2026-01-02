@@ -446,6 +446,43 @@ app.MapMethods("/api/workitems/{id:int}/description", new[] { "PATCH", "POST" },
     }
 });
 
+public record UpdateDatesRequest(string? StartDate, string? DueDate);
+
+app.MapMethods("/api/workitems/{id:int}/dates", new[] { "PATCH", "POST" }, async (AzdoClient az, AppDbContext db, MetricsService metrics, IOptions<AzdoOptions> opt, int id, UpdateDatesRequest req, CancellationToken ct) =>
+{
+    DateTimeOffset? Parse(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        // Accept ISO, yyyy-MM-dd, or datetime-local
+        if (DateTimeOffset.TryParse(s, out var dto))
+            return dto;
+        if (DateTime.TryParse(s, out var dt))
+            return new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc));
+        return null;
+    }
+
+    var start = Parse(req.StartDate);
+    var due = Parse(req.DueDate);
+
+    // Update in Azure first
+    await az.UpdateWorkItemDatesAsync(id, start, due, ct);
+
+    // Refresh local cache to reflect new metrics
+    try
+    {
+        var wi = await az.GetWorkItemAsync(id, ct, extraFields: new[] { "System.Description" });
+        var revs = await az.ListRevisionsAsync(id, ct);
+        await UpsertFromAzureAsync(db, metrics, opt.Value, wi, revs);
+        await db.SaveChangesAsync(ct);
+    }
+    catch
+    {
+        // Even if cache refresh fails, date update already succeeded.
+    }
+
+    return Results.Ok(new { ok = true });
+});
+
 
 
 app.MapGet("/api/proxy/image", async (HttpContext http, AzdoClient az, string url, CancellationToken ct) =>
@@ -1332,8 +1369,11 @@ public record WorkItemDto
     public DateTimeOffset CreatedDate { get; init; }
     public DateTimeOffset ChangedDate { get; init; }
     public DateTimeOffset? StartDate { get; init; }
+    public DateTimeOffset? InProgressDate { get; init; }
     public DateTimeOffset? DoneDate { get; init; }
     public DateTimeOffset? DueDateSetDate { get; init; }
+    public DateTimeOffset? EffectiveDueDate { get; init; }
+    public string? EffectiveDueDateSource { get; init; }
     public int? ExpectedDays { get; init; }
     public DateTimeOffset? ForecastDueDate { get; init; }
     public int? CommitmentVarianceDays { get; init; }
@@ -1392,8 +1432,11 @@ public static class DtoMapper
         CreatedDate = x.CreatedDate,
         ChangedDate = x.ChangedDate,
         StartDate = x.StartDate,
+        InProgressDate = x.InProgressDate,
         DoneDate = x.DoneDate,
         DueDateSetDate = x.DueDateSetDate,
+        EffectiveDueDate = x.EffectiveDueDate,
+        EffectiveDueDateSource = x.EffectiveDueDateSource,
         ExpectedDays = x.ExpectedDays,
         ForecastDueDate = x.ForecastDueDate,
         CommitmentVarianceDays = x.CommitmentVarianceDays,

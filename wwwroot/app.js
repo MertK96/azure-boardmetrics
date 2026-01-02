@@ -210,11 +210,11 @@ function titleCell(wi){
  * Not: Start+Effort+Due+ForecastDue varsa anlamlı.
  */
 function forecastMismatchClass(wi){
-  if(!wi.startDate) return '';
   if(wi.effort == null) return '';
-  if(!wi.dueDate || !wi.forecastDueDate) return '';
+  const dd = wi.effectiveDueDate ?? wi.dueDate;
+  if(!dd || !wi.forecastDueDate) return '';
 
-  const due = dateKey(wi.dueDate);
+  const due = dateKey(dd);
   const fc = dateKey(wi.forecastDueDate);
   if(!due || !fc) return '';
 
@@ -227,8 +227,9 @@ function forecastMismatchClass(wi){
  * İstek: Start→Due ayrı renk (pratikte Due <= Today olduğunda belirginleşir)
  */
 function commitmentOverdue(wi){
-  if(!wi.dueDate) return false;
-  const due = dateKey(wi.dueDate);
+  const dd = wi.effectiveDueDate ?? wi.dueDate;
+  if(!dd) return false;
+  const due = dateKey(dd);
   if(!due) return false;
   return due <= todayKey();
 }
@@ -460,7 +461,31 @@ async function load(){
     return;
   }
 
-  const data = await res.json();
+  let data = await res.json();
+
+  // Normalize keys (API uses camelCase, but keep compatibility)
+  data = (Array.isArray(data) ? data : []).map(x => ({
+    id: x.id ?? x.Id,
+    title: x.title ?? x.Title,
+    workItemType: x.workItemType ?? x.WorkItemType,
+    state: x.state ?? x.State,
+    assignedToDisplayName: x.assignedToDisplayName ?? x.AssignedToDisplayName,
+    assignedToUniqueName: x.assignedToUniqueName ?? x.AssignedToUniqueName,
+    effort: x.effort ?? x.Effort,
+    startDate: x.startDate ?? x.StartDate,
+    inProgressDate: x.inProgressDate ?? x.InProgressDate,
+    dueDate: x.dueDate ?? x.DueDate,
+    effectiveDueDate: x.effectiveDueDate ?? x.EffectiveDueDate,
+    effectiveDueDateSource: x.effectiveDueDateSource ?? x.EffectiveDueDateSource,
+    doneDate: x.doneDate ?? x.DoneDate,
+    expectedDays: x.expectedDays ?? x.ExpectedDays,
+    forecastDueDate: x.forecastDueDate ?? x.ForecastDueDate,
+    forecastVarianceDays: x.forecastVarianceDays ?? x.ForecastVarianceDays,
+    slackDays: x.slackDays ?? x.SlackDays,
+    needsFeedback: x.needsFeedback ?? x.NeedsFeedback,
+    poolReason: x.poolReason ?? x.PoolReason,
+    changedDate: x.changedDate ?? x.ChangedDate,
+  }));
 
   const tbody = $('tbl').querySelector('tbody');
   tbody.innerHTML = '';
@@ -488,9 +513,17 @@ async function load(){
     tr.appendChild(cell(wi.state));
     tr.appendChild(cell(wi.effort ?? ''));
     tr.appendChild(cell(fmtDate(wi.startDate)));
+    tr.appendChild(cell(fmtDate(wi.inProgressDate)));
 
-    // Due cell
-    tr.appendChild(cell(fmtDate(wi.dueDate), isCommitOver ? 'cellCommitOver' : ''));
+    // Due cell (use effective due; if it's auto (forecast), show marker)
+    const dueText = fmtDate(wi.effectiveDueDate ?? wi.dueDate);
+    const dueCls = isCommitOver ? 'cellCommitOver' : '';
+    const dueEl = cell(dueText, dueCls);
+    if(wi.effectiveDueDateSource === 'forecast' && dueText){
+      dueEl.title = 'Due yoktu: ForecastDue baz alındı';
+      dueEl.classList.add('cellAutoDue');
+    }
+    tr.appendChild(dueEl);
 
     tr.appendChild(cell(fmtDate(wi.doneDate)));
     tr.appendChild(cell(wi.expectedDays ?? ''));
@@ -561,6 +594,16 @@ async function openDetail(id){
 
   $('d_url').href = buildBoardUrl(wi.id);
 
+  // Dates panel
+  const datesText = `Start: ${fmtDate(wi.startDate) || '-'} | In Progress: ${fmtDate(wi.inProgressDate) || '-'} | Due: ${fmtDate(wi.dueDate) || '-'} | Effective: ${fmtDate(wi.effectiveDueDate) || '-'}`;
+  const datesEl = $('d_dates');
+  if(datesEl) datesEl.textContent = datesText;
+
+  const editDatesBtn = $('d_dates_edit');
+  if(editDatesBtn){
+    editDatesBtn.onclick = () => openDatesModal(wi);
+  }
+
   renderList('fb_list', (data.feedback || []).map(f => `${fmtDate(f.createdAt)} - ${f.note}`));
 
   if(descEl){
@@ -597,6 +640,55 @@ async function openDetail(id){
     const btn = $('d_desc_edit');
     if(btn) btn.onclick = openEdit;
   }
+}
+
+function toDateInputValue(d){
+  if(!d) return '';
+  const dt = new Date(d);
+  if(Number.isNaN(dt.getTime())) return '';
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth()+1).padStart(2,'0');
+  const day = String(dt.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+async function openDatesModal(wi){
+  const modal = $('dateModal');
+  if(!modal) return;
+
+  $('dates_status').textContent = '';
+  $('edit_start').value = toDateInputValue(wi.startDate);
+  $('edit_due').value = toDateInputValue(wi.dueDate);
+  modal.classList.remove('hidden');
+
+  $('cancel_dates').onclick = () => modal.classList.add('hidden');
+
+  $('save_dates').onclick = async () => {
+    const start = $('edit_start').value;
+    const due = $('edit_due').value;
+    $('dates_status').textContent = 'kaydediliyor...';
+    let res;
+    try{
+      res = await fetch(`/api/workitems/${wi.id}/dates`,{
+        method:'PATCH',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ startDate: start || null, dueDate: due || null })
+      });
+    }catch{
+      $('dates_status').textContent = 'API erişilemedi.';
+      return;
+    }
+    if(!res.ok){
+      const err = await res.text().catch(()=>null);
+      $('dates_status').textContent = `hata: ${res.status}` + (err ? ` | ${err}` : '');
+      return;
+    }
+    $('dates_status').textContent = 'ok';
+    modal.classList.add('hidden');
+    // refresh detail + board
+    await load();
+    await openDetail(wi.id);
+  };
 }
 
 function setActiveTab(tab){

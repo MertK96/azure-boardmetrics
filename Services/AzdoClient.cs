@@ -32,10 +32,13 @@ public class AzdoOptions
 
     public string EffortField { get; set; } = "Microsoft.VSTS.Scheduling.Effort";
     public string DueDateField { get; set; } = "Microsoft.VSTS.Scheduling.TargetDate";
+    // Used by the UI to edit "Start". Some processes hide it for Bugs, but the field can still exist.
+    public string StartDateField { get; set; } = "Microsoft.VSTS.Scheduling.StartDate";
     public string DescriptionField { get; set; } = "Custom.UserStoryProblem";
     public string[] PriorityFields { get; set; } = new[] { "Microsoft.VSTS.Common.Priority", "Microsoft.VSTS.Common.StackRank" };
 
     public string[] StartStates { get; set; } = new[] { "Active", "In Progress" };
+    public string[] InProgressStates { get; set; } = new[] { "In Progress" };
     public string[] DoneStates { get; set; } = new[] { "Done", "Closed", "Resolved" };
 
     public double WorkdayEffortPerDay { get; set; } = 4.0;
@@ -407,6 +410,47 @@ public async Task UpdateWorkItemDescriptionAsync(int id, string descriptionHtml,
     {
         var body = await res.Content.ReadAsStringAsync(ct);
         throw new Exception($"WI UpdateDescription failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
+    }
+}
+
+public async Task UpdateWorkItemDatesAsync(int id, DateTimeOffset? startDate, DateTimeOffset? dueDate, CancellationToken ct)
+{
+    var project = (_opt.Project ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(project))
+        throw new Exception("Project boş. AZDO_PROJECT/appsettings üzerinden proje adı gerekli.");
+
+    var ops = new List<object>();
+
+    // Start
+    if (!string.IsNullOrWhiteSpace(_opt.StartDateField))
+    {
+        if (startDate is null)
+            ops.Add(new { op = "remove", path = $"/fields/{EscapeJsonPatchField(_opt.StartDateField)}" });
+        else
+            ops.Add(new { op = "add", path = $"/fields/{EscapeJsonPatchField(_opt.StartDateField)}", value = startDate.Value.UtcDateTime.ToString("o") });
+    }
+
+    // Due
+    if (!string.IsNullOrWhiteSpace(_opt.DueDateField))
+    {
+        if (dueDate is null)
+            ops.Add(new { op = "remove", path = $"/fields/{EscapeJsonPatchField(_opt.DueDateField)}" });
+        else
+            ops.Add(new { op = "add", path = $"/fields/{EscapeJsonPatchField(_opt.DueDateField)}", value = dueDate.Value.UtcDateTime.ToString("o") });
+    }
+
+    if (ops.Count == 0)
+        return;
+
+    var url = $"{project}/_apis/wit/workitems/{id}?api-version=7.1-preview.3";
+    using var req = new HttpRequestMessage(new HttpMethod("PATCH"), url);
+    req.Content = new StringContent(JsonSerializer.Serialize(ops), Encoding.UTF8, "application/json-patch+json");
+
+    using var res = await _http.SendAsync(req, ct);
+    if (!res.IsSuccessStatusCode)
+    {
+        var body = await res.Content.ReadAsStringAsync(ct);
+        throw new Exception($"WI UpdateDates failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
     }
 }
 
@@ -958,6 +1002,13 @@ private async Task<List<AzdoWorkItem>> GetWorkItemsBatchInternalAsync(int[] idLi
     }
 
     private static string EscapeWiql(string s) => s.Replace("'", "''");
+
+    private static string EscapeJsonPatchField(string fieldRefName)
+    {
+        // JSON Patch path segment escaping: '~' => '~0', '/' => '~1'
+        // Dots are fine.
+        return (fieldRefName ?? "").Replace("~", "~0").Replace("/", "~1");
+    }
 }
 
 public record AzdoIdentity(string? DisplayName, string? UniqueName);

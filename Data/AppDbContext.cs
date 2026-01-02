@@ -55,8 +55,16 @@ public class WorkItemEntity
 
     // Derived timeline
     public DateTimeOffset? StartDate { get; set; }
+    public DateTimeOffset? InProgressDate { get; set; }
     public DateTimeOffset? DoneDate { get; set; }
     public DateTimeOffset? DueDateSetDate { get; set; }
+
+    // "Effective" due date used for board metrics.
+    // If DueDate is null, this may fall back to ForecastDueDate (computed from Effort).
+    public DateTimeOffset? EffectiveDueDate { get; set; }
+
+    // "due" | "forecast" | null
+    public string? EffectiveDueDateSource { get; set; }
 
     // Derived metrics (date-based days)
     public int? ExpectedDays { get; set; }
