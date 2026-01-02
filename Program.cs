@@ -947,6 +947,9 @@ app.MapGet("/api/workitems", async (AppDbContext db, IOptions<AzdoOptions> opt, 
     var q = db.WorkItems.AsNoTracking()
         .Where(x => x.State != null && inProgStates.Contains(x.State));
 
+    // Board sekmesi yalnızca Bug + Product Backlog Item göstermeli (Feature/Task vs. gelmesin)
+    q = q.Where(x => x.WorkItemType == "Bug" || x.WorkItemType == "Product Backlog Item");
+
     if (!string.IsNullOrWhiteSpace(assignee))
         q = q.Where(x => x.AssignedToUniqueName == assignee);
 
@@ -998,6 +1001,7 @@ app.MapPost("/api/workitems/refresh-inprogress", async (AzdoClient az, AppDbCont
 FROM WorkItems
 WHERE
 {projectClause}    [System.State] <> 'Removed'
+    AND [System.WorkItemType] IN ('Bug','Product Backlog Item')
     AND (
         [System.State] IN ('In Progress','Active','Doing','Started','Devam Ediyor','Yapılıyor','Yapiliyor','İşleniyor','Isleniyor','InProgress')
         OR [System.State] CONTAINS 'Progress'

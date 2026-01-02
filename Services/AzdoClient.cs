@@ -17,6 +17,9 @@ public class AzdoOptions
     public string? DefaultAreaPath { get; set; }
     public string? DefaultIterationPath { get; set; }
 
+    // Azure Boards "Board Column" filtresi. (Env: AZDO_BOARD_COLUMNS="Pre To Do,Bugs,In Progress,...")
+    public string[]? BoardColumns { get; set; }
+
 
     // Board column used for "Code Review Ataması" tab (typo kept intentionally)
     public string ReadyForCodeReviewColumn { get; set; } = "Ready for Code Rewiew";
@@ -71,6 +74,16 @@ public class AzdoClient
         // Defaults for CreateWorkItem
         _opt.DefaultAreaPath = NormalizePathEnv(Environment.GetEnvironmentVariable("AZDO_DEFAULT_AREA_PATH")) ?? _opt.DefaultAreaPath;
         _opt.DefaultIterationPath = NormalizePathEnv(Environment.GetEnvironmentVariable("AZDO_DEFAULT_ITERATION_PATH")) ?? _opt.DefaultIterationPath;
+
+        // Board column allow-list (opsiyonel)
+        var boardColsRaw = Environment.GetEnvironmentVariable("AZDO_BOARD_COLUMNS");
+        if (!string.IsNullOrWhiteSpace(boardColsRaw))
+        {
+            _opt.BoardColumns = boardColsRaw
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToArray();
+        }
 
         _http.BaseAddress = new Uri(_opt.OrganizationUrl.TrimEnd('/') + "/");
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));

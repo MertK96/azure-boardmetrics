@@ -54,10 +54,6 @@ catch (Exception ex)
         var az = scope.ServiceProvider.GetRequiredService<AzdoClient>();
         var metrics = scope.ServiceProvider.GetRequiredService<MetricsService>();
         var opt = az.Options;
-        var allowedUsers = (opt.Users ?? Array.Empty<string>())
-    .Where(x => !string.IsNullOrWhiteSpace(x))
-    .Select(x => x.Trim().ToLowerInvariant())
-    .ToHashSet();
 
         if (string.IsNullOrWhiteSpace(opt.OrganizationUrl) || string.IsNullOrWhiteSpace(opt.Project) || string.IsNullOrWhiteSpace(opt.Pat))
         {
@@ -82,16 +78,10 @@ foreach (var chunk in ids.Chunk(200))
 
     foreach (var wi in items)
     {
-        // AllowedUsers boşsa filtreleme yapma (tümünü al)
-        if (allowedUsers.Count > 0)
-        {
-            var ident = wi.GetIdentity("System.AssignedTo");
-            var unique = (ident?.UniqueName ?? ident?.DisplayName ?? "").Trim().ToLowerInvariant();
-
-            if (string.IsNullOrWhiteSpace(unique) || !allowedUsers.Contains(unique))
-                continue;
-        }
-
+        // NOT: Önceki versiyonlarda "Azdo:Users" ile collector tarafında filtre yapılıyordu.
+        // Bu, Board/InProgress gibi ekranların Azure'daki değişiklikleri "güncellemiyor" gibi
+        // görünmesine sebep oluyordu (listedeki kullanıcılar dışındaki assignee'ler düşüyordu).
+        // Kullanıcı filtreleri UI tarafında uygulanmalı; burada tüm work item'ları upsert ediyoruz.
         await UpsertWorkItemAsync(db, az, metrics, wi, ct);
         upsertedCount++;
     }
