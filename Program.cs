@@ -514,6 +514,10 @@ app.MapPost("/api/workitems", async (AzdoClient az, CreateWorkItemRequest req, C
         var pri = req.Priority is null ? 4 : Math.Clamp(req.Priority.Value, 1, 4);
 
         var created = await az.CreateWorkItemAsync(type, title, html, pri, ct);
+
+        // Make it show up at the top of the team backlog (Azure UI does a similar call).
+        await az.TryMoveWorkItemToTopAsync(created.Id, ct);
+
         return Results.Ok(new { ok = true, id = created.Id });
     }
     catch (Exception ex)

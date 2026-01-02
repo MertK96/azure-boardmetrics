@@ -2570,9 +2570,9 @@ async function createNewAssignItem(){
     }
 
     const created = await res.json();
-    // optimistic insert at top of its column (new items should appear immediately)
+    const createdId = created?.id ?? created?.Id ?? created?.workItemId ?? created?.WorkItemId;
     titleInp.value = '';
-    if(status) status.textContent = `Oluşturuldu: #${created.id}`;
+    if(status) status.textContent = createdId ? `Oluşturuldu: #${createdId}` : 'Oluşturuldu.';
 
     // reload to ensure all fields/state are in sync
     await loadAssignableItems();

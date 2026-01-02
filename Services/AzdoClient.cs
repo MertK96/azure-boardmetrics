@@ -535,6 +535,57 @@ if (string.IsNullOrWhiteSpace(iterationPath))
     }
 }
 
+    /// <summary>
+    /// Best-effort: moves a work item to the top of the team backlog ordering.
+    /// Azure DevOps web UI typically calls the WorkItemsOrder endpoint right after creation
+    /// (previousId=-1 + nextId=some current item). This is optional; if it fails we just skip.
+    /// </summary>
+    public async Task TryMoveWorkItemToTopAsync(int workItemId, CancellationToken ct)
+    {
+        try
+        {
+            var project = (_opt.Project ?? "").Trim();
+            var team = (_opt.Team ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(project) || string.IsNullOrWhiteSpace(team)) return;
+
+            // Anchor with a reasonable "nextId" so the new item becomes first.
+            // We use "most recently changed New" as a pragmatic stand-in.
+            var projEsc = EscapeWiql(project);
+            var wiql = $@"SELECT [System.Id]
+FROM WorkItems
+WHERE
+    [System.TeamProject] = '{projEsc}'
+    AND [System.State] IN ('New','Yeni')
+    AND [System.WorkItemType] IN ('User Story','Bug','Product Backlog Item')
+    AND [System.Id] <> {workItemId}
+ORDER BY [System.ChangedDate] DESC";
+
+            var ids = await QueryWorkItemIdsByWiqlAsync(wiql, ct);
+            var nextId = ids.FirstOrDefault();
+            if (nextId <= 0) return;
+
+            // Team-scoped route. Many Work APIs accept /{project}/{team}/...
+            var url = $"{Uri.EscapeDataString(project)}/{Uri.EscapeDataString(team)}/_apis/work/workitemsorder?api-version=7.1-preview.2";
+            var payload = JsonSerializer.Serialize(new
+            {
+                ids = new[] { workItemId },
+                iterationPath = "",
+                nextId = nextId,
+                previousId = -1,
+                parentId = 0
+            });
+
+            using var req = new HttpRequestMessage(HttpMethod.Post, url);
+            req.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+            using var res = await _http.SendAsync(req, ct);
+            _ = await res.Content.ReadAsStringAsync(ct);
+        }
+        catch
+        {
+            // best-effort
+        }
+    }
+
 public async Task<List<AzdoUserDto>> GetAzdoUsersAsync(int top, CancellationToken ct)
     {
         var org = GetOrganizationName();
