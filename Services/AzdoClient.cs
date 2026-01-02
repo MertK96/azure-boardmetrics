@@ -31,9 +31,14 @@ public class AzdoOptions
     public string? ReviewOwnerFieldReferenceName { get; set; } = null;
 
     public string EffortField { get; set; } = "Microsoft.VSTS.Scheduling.Effort";
-    public string DueDateField { get; set; } = "Microsoft.VSTS.Scheduling.TargetDate";
+    public string DueDateField { get; set; } = "Microsoft.VSTS.Scheduling.DueDate";
     // Used by the UI to edit "Start". Some processes hide it for Bugs, but the field can still exist.
-    public string StartDateField { get; set; } = "Microsoft.VSTS.Scheduling.StartDate";
+    // "Starter Date" field reference name (often a custom field).
+    // Env override: AZDO_STARTER_DATE_FIELD
+    public string StarterDateField { get; set; } = "Custom.StarterDate";
+
+    // Backward compatibility (older config/UI). If set, it will be used as a fallback for StarterDateField.
+    public string? StartDateField { get; set; } = "Microsoft.VSTS.Scheduling.StartDate";
     public string DescriptionField { get; set; } = "Custom.UserStoryProblem";
     public string[] PriorityFields { get; set; } = new[] { "Microsoft.VSTS.Common.Priority", "Microsoft.VSTS.Common.StackRank" };
 
@@ -422,12 +427,16 @@ public async Task UpdateWorkItemDatesAsync(int id, DateTimeOffset? startDate, Da
     var ops = new List<object>();
 
     // Start
-    if (!string.IsNullOrWhiteSpace(_opt.StartDateField))
+    var starterField = !string.IsNullOrWhiteSpace(_opt.StarterDateField)
+            ? _opt.StarterDateField
+            : _opt.StartDateField;
+
+        if (!string.IsNullOrWhiteSpace(starterField))
     {
         if (startDate is null)
-            ops.Add(new { op = "remove", path = $"/fields/{EscapeJsonPatchField(_opt.StartDateField)}" });
+            ops.Add(new { op = "remove", path = $"/fields/{EscapeJsonPatchField(starterField!)}" });
         else
-            ops.Add(new { op = "add", path = $"/fields/{EscapeJsonPatchField(_opt.StartDateField)}", value = startDate.Value.UtcDateTime.ToString("o") });
+            ops.Add(new { op = "add", path = $"/fields/{EscapeJsonPatchField(starterField!)}", value = startDate.Value.UtcDateTime.ToString("o") });
     }
 
     // Due
@@ -842,6 +851,21 @@ private async Task<string?> GetReviewOwnerFieldRefAsync(CancellationToken ct)
                 fields.Add(pf);
         }
     }
+
+
+    // Ensure date/effort fields are fetched for metrics + editing
+    if (!string.IsNullOrWhiteSpace(_opt.EffortField) && !fields.Contains(_opt.EffortField))
+        fields.Add(_opt.EffortField);
+
+    if (!string.IsNullOrWhiteSpace(_opt.DueDateField) && !fields.Contains(_opt.DueDateField))
+        fields.Add(_opt.DueDateField);
+
+    if (!string.IsNullOrWhiteSpace(_opt.StarterDateField) && !fields.Contains(_opt.StarterDateField))
+        fields.Add(_opt.StarterDateField);
+
+    // Backward-compat fallback field; safe to include (ignored if unknown in process)
+    if (!string.IsNullOrWhiteSpace(_opt.StartDateField) && !fields.Contains(_opt.StartDateField))
+        fields.Add(_opt.StartDateField);
 
     if (extraFields is not null)
     {

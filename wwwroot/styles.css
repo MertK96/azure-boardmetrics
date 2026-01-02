@@ -20,6 +20,11 @@ button:hover{filter:brightness(1.05)}
 .tableWrap{overflow:auto;border:1px solid #223044;border-radius:14px}
 table{border-collapse:collapse;width:100%;min-width:1200px}
 th,td{border-bottom:1px solid #223044;padding:10px 10px;font-size:12px;white-space:nowrap}
+
+/* Clickable date cells (board view) */
+.dateBtn{background:transparent;border:0;padding:0;margin:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.dateBtn:hover{text-decoration:underline}
+.dateBtn:focus{outline:1px solid rgba(122,162,247,0.7);outline-offset:2px;border-radius:6px}
 th{position:sticky;top:0;background:#0f1726;text-align:left;color:#97a6b3}
 tr:hover{background:#0f1726}
 

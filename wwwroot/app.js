@@ -24,7 +24,26 @@ let azdoUsers = [];
 
 let activeTab = 'note'; // 'note' | 'comment'
 
+// Board view cache (used for inline actions like date edit)
+let boardItems = [];
+
 function pad2(n){ return String(n).padStart(2,'0'); }
+
+function makeDateEditCell(wi, field, text, extraClass){
+  const td = document.createElement('td');
+  if(extraClass) td.className = extraClass;
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'dateBtn';
+  btn.dataset.id = String(wi.id);
+  btn.dataset.field = field; // 'start' | 'due'
+  btn.textContent = text || '—';
+  btn.title = field === 'start' ? 'Start Date güncelle' : 'Due Date güncelle';
+
+  td.appendChild(btn);
+  return td;
+}
 
 function n2(v){
   const x = Math.round((Number(v) || 0) * 100) / 100;
@@ -487,6 +506,9 @@ async function load(){
     changedDate: x.changedDate ?? x.ChangedDate,
   }));
 
+  // keep a copy for inline actions (date edit from table cells)
+  boardItems = data;
+
   const tbody = $('tbl').querySelector('tbody');
   tbody.innerHTML = '';
 
@@ -512,13 +534,13 @@ async function load(){
     tr.appendChild(cell(wi.assignedToUniqueName ?? wi.assignedToDisplayName ?? ''));
     tr.appendChild(cell(wi.state));
     tr.appendChild(cell(wi.effort ?? ''));
-    tr.appendChild(cell(fmtDate(wi.startDate)));
+    tr.appendChild(dateEditCell(wi, 'start'));
     tr.appendChild(cell(fmtDate(wi.inProgressDate)));
 
     // Due cell (use effective due; if it's auto (forecast), show marker)
     const dueText = fmtDate(wi.effectiveDueDate ?? wi.dueDate);
     const dueCls = isCommitOver ? 'cellCommitOver' : '';
-    const dueEl = cell(dueText, dueCls);
+    const dueEl = dateEditCell(wi, 'due', dueText, dueCls);
     if(wi.effectiveDueDateSource === 'forecast' && dueText){
       dueEl.title = 'Due yoktu: ForecastDue baz alındı';
       dueEl.classList.add('cellAutoDue');
@@ -539,6 +561,27 @@ async function load(){
   }
 
   $('status').textContent = `ok (${data.length})`;
+}
+
+function dateEditCell(wi, field, textOverride, extraCls){
+  const td = document.createElement('td');
+  if(extraCls) td.className = extraCls;
+
+  const raw = field === 'start' ? wi.startDate : wi.dueDate;
+  const txt = (textOverride !== undefined) ? (textOverride || '') : fmtDate(raw);
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'dateBtn';
+  btn.dataset.id = String(wi.id);
+  btn.dataset.field = field;
+  btn.textContent = txt || '—';
+  btn.title = field === 'start'
+    ? 'Start Date güncelle'
+    : 'Due Date güncelle';
+
+  td.appendChild(btn);
+  return td;
 }
 
 async function openDetail(id){
@@ -652,18 +695,43 @@ function toDateInputValue(d){
   return `${y}-${m}-${day}`;
 }
 
-async function openDatesModal(wi){
+async function openDatesModal(wi, mode = 'both'){
   const modal = $('dateModal');
   if(!modal) return;
+
+  const rowStart = $('row_start');
+  const rowDue = $('row_due');
+  const titleEl = $('dateModalTitle');
 
   $('dates_status').textContent = '';
   $('edit_start').value = toDateInputValue(wi.startDate);
   $('edit_due').value = toDateInputValue(wi.dueDate);
+
+  // per-field mode (table cell click)
+  const isStartOnly = mode === 'start';
+  const isDueOnly = mode === 'due';
+  if(rowStart) rowStart.classList.toggle('hidden', isDueOnly);
+  if(rowDue) rowDue.classList.toggle('hidden', isStartOnly);
+  if(titleEl){
+    titleEl.textContent = isStartOnly ? 'Start Date güncelle'
+      : isDueOnly ? 'Due Date güncelle'
+      : 'Tarihleri güncelle';
+  }
+
   modal.classList.remove('hidden');
+
+  // focus
+  setTimeout(() => {
+    if(isStartOnly) $('edit_start')?.focus();
+    else if(isDueOnly) $('edit_due')?.focus();
+  }, 0);
 
   $('cancel_dates').onclick = () => modal.classList.add('hidden');
 
   $('save_dates').onclick = async () => {
+    // IMPORTANT:
+    // Backend treats null as "remove field". So even in single-field mode,
+    // we always send the current other value to avoid accidental removals.
     const start = $('edit_start').value;
     const due = $('edit_due').value;
     $('dates_status').textContent = 'kaydediliyor...';
@@ -1545,6 +1613,23 @@ async function loadAssignableItems(){
 }
 
 $('refresh').addEventListener('click', load);
+
+// Inline date edit from board table (click on Start/Due cells)
+const tbl = $('tbl');
+if(tbl){
+  tbl.addEventListener('click', (e) => {
+    const t = e.target;
+    const btn = t && t.closest ? t.closest('button.dateBtn') : null;
+    if(!btn) return;
+
+    e.preventDefault();
+    const id = Number(btn.dataset.id);
+    const field = (btn.dataset.field || 'both');
+    const wi = boardItems.find(x => Number(x.id) === id);
+    if(!wi) return;
+    openDatesModal(wi, field);
+  });
+}
 $('close').addEventListener('click', () => $('detail').classList.add('hidden'));
 $('sendFb').addEventListener('click', sendFeedback);
 
