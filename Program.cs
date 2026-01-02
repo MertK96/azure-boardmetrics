@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Text.RegularExpressions;
 using AzdoBoardMetrics.Data;
+using AzdoBoardMetrics.Models;
 using AzdoBoardMetrics.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -446,8 +447,7 @@ app.MapMethods("/api/workitems/{id:int}/description", new[] { "PATCH", "POST" },
     }
 });
 
-public record UpdateDatesRequest(string? StartDate, string? DueDate);
-
+	
 app.MapMethods("/api/workitems/{id:int}/dates", new[] { "PATCH", "POST" }, async (AzdoClient az, AppDbContext db, MetricsService metrics, IOptions<AzdoOptions> opt, int id, UpdateDatesRequest req, CancellationToken ct) =>
 {
     DateTimeOffset? Parse(string? s)
