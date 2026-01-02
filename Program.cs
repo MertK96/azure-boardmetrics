@@ -933,11 +933,18 @@ ORDER BY [System.ChangedDate] ASC";
 });
 
 
-app.MapGet("/api/workitems", async (AppDbContext db, string? assignee, string? flagged, int? top) =>
+app.MapGet("/api/workitems", async (AppDbContext db, AzdoOptions opt, string? assignee, string? flagged, int? top) =>
 {
-    // SADECE In Progress
+    // Board sekmesi: In Progress (ve süreç/proses varyantları)
+    var inProgStates = new HashSet<string>(
+        (opt.StartStates ?? Array.Empty<string>())
+            .Concat(new[] { "In Progress", "Active", "Doing", "Started", "Devam Ediyor", "Yapılıyor", "Yapiliyor", "İşleniyor", "Isleniyor" })
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim()),
+        StringComparer.OrdinalIgnoreCase);
+
     var q = db.WorkItems.AsNoTracking()
-        .Where(x => x.State == "In Progress");
+        .Where(x => x.State != null && inProgStates.Contains(x.State));
 
     if (!string.IsNullOrWhiteSpace(assignee))
         q = q.Where(x => x.AssignedToUniqueName == assignee);
@@ -984,12 +991,17 @@ app.MapPost("/api/workitems/refresh-inprogress", async (AzdoClient az, AppDbCont
         ? ""
         : $"    [System.TeamProject] = '{proj}'\n    AND ";
 
-    // Board lane: only In Progress (and TR equivalents)
+    // Board lane: In Progress varyantları (farklı süreç isimleri / dil)
+    // Not: Bazı süreçlerde state adı "InProgress" gibi farklı gelebiliyor; CONTAINS ile kapsıyoruz.
     var wiql = $@"SELECT [System.Id]
 FROM WorkItems
 WHERE
 {projectClause}    [System.State] <> 'Removed'
-    AND [System.State] IN ('In Progress','Active','Doing','Started','Devam Ediyor','Yapılıyor','Yapiliyor','İşleniyor','Isleniyor')
+    AND (
+        [System.State] IN ('In Progress','Active','Doing','Started','Devam Ediyor','Yapılıyor','Yapiliyor','İşleniyor','Isleniyor','InProgress')
+        OR [System.State] CONTAINS 'Progress'
+        OR [System.State] CONTAINS 'Devam'
+    )
 ORDER BY [System.ChangedDate] DESC";
 
     var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);

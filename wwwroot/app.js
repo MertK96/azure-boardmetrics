@@ -2419,6 +2419,9 @@ function openModal(title, bodyEl, onSave){
       btnSave.disabled = true;
       await onSave();
       ov.remove();
+    }catch(err){
+      const msg = (err && err.message) ? err.message : String(err || 'Hata');
+      alert(msg);
     }finally{
       btnSave.disabled = false;
     }

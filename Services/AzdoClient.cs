@@ -65,13 +65,27 @@ public class AzdoClient
         // Allow env overrides
         _opt.OrganizationUrl = Environment.GetEnvironmentVariable("AZDO_ORG_URL") ?? _opt.OrganizationUrl;
         _opt.Project = Environment.GetEnvironmentVariable("AZDO_PROJECT") ?? _opt.Project;
+        _opt.Team = Environment.GetEnvironmentVariable("AZDO_TEAM") ?? _opt.Team;
         _opt.Pat = Environment.GetEnvironmentVariable("AZDO_PAT") ?? _opt.Pat;
+
+        // Defaults for CreateWorkItem
+        _opt.DefaultAreaPath = NormalizePathEnv(Environment.GetEnvironmentVariable("AZDO_DEFAULT_AREA_PATH")) ?? _opt.DefaultAreaPath;
+        _opt.DefaultIterationPath = NormalizePathEnv(Environment.GetEnvironmentVariable("AZDO_DEFAULT_ITERATION_PATH")) ?? _opt.DefaultIterationPath;
 
         _http.BaseAddress = new Uri(_opt.OrganizationUrl.TrimEnd('/') + "/");
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var token = Convert.ToBase64String(Encoding.ASCII.GetBytes($":{_opt.Pat}"));
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", token);
+    }
+
+    private static string? NormalizePathEnv(string? v)
+    {
+        if (string.IsNullOrWhiteSpace(v)) return null;
+        // Render env UI may contain double backslashes (\) literally. Azure expects single '\'.
+        var s = v.Trim();
+        while (s.Contains("\\\\")) s = s.Replace("\\\\", "\\");
+        return s;
     }
 
     public AzdoOptions Options => _opt;
