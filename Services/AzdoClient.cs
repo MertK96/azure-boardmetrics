@@ -619,13 +619,8 @@ ORDER BY [Microsoft.VSTS.Common.StackRank] ASC";
             // best-effort, ignore
         }
     }
-        catch
-        {
-            // best-effort
-        }
-    }
 
-public async Task<List<AzdoUserDto>> GetAzdoUsersAsync(int top, CancellationToken ct)
+    public async Task<List<AzdoUserDto>> GetAzdoUsersAsync(int top, CancellationToken ct)
     {
         var org = GetOrganizationName();
         if (string.IsNullOrWhiteSpace(org))
