@@ -865,6 +865,19 @@ private async Task<string?> GetReviewOwnerFieldRefAsync(CancellationToken ct)
     }
 }
 
+	/// <summary>
+	/// Convenience wrapper for fetching a single work item.
+	/// Uses the batch endpoint under the hood to keep field selection behavior consistent.
+	/// </summary>
+	public async Task<AzdoWorkItem> GetWorkItemAsync(int id, CancellationToken ct, IEnumerable<string>? extraFields = null)
+	{
+	    var list = await GetWorkItemsBatchAsync(new[] { id }, ct, extraFields);
+	    var wi = list.FirstOrDefault();
+	    if (wi == null)
+	        throw new InvalidOperationException($"Work item {id} not found.");
+	    return wi;
+	}
+
 private async Task<List<AzdoWorkItem>> GetWorkItemsBatchInternalAsync(int[] idList, List<string> fields, CancellationToken ct)
 {
     var body = JsonSerializer.Serialize(new

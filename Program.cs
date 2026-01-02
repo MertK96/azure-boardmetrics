@@ -470,7 +470,11 @@ app.MapMethods("/api/workitems/{id:int}/dates", new[] { "PATCH", "POST" }, async
     // Refresh local cache to reflect new metrics
     try
     {
-        var wi = await az.GetWorkItemAsync(id, ct, extraFields: new[] { "System.Description" });
+        // Fetch single item using the batch API (keeps field selection consistent across processes)
+        var wi = (await az.GetWorkItemsBatchAsync(new[] { id }, ct, extraFields: new[] { "System.Description" }))
+            .FirstOrDefault();
+        if (wi == null)
+            return Results.NotFound(new { message = $"Work item {id} not found." });
         var revs = await az.ListRevisionsAsync(id, ct);
         await UpsertFromAzureAsync(db, metrics, opt.Value, wi, revs);
         await db.SaveChangesAsync(ct);
