@@ -196,7 +196,7 @@ WHERE
             AND [System.WorkItemType] IN ('Bug','Product Backlog Item')
         )
     )
-// Backlog stack order (StackRank ASC) so "Add to top" is deterministic.
+-- Backlog stack order (StackRank ASC) so Add to top is deterministic.
 ORDER BY [Microsoft.VSTS.Common.StackRank] ASC";
 
         var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);
