@@ -430,6 +430,15 @@ async function load(){
   await ensureConfig();
   $('status').textContent = 'yükleniyor...';
 
+  // Azure'daki state değişikliklerinin anlık görünmesi için
+  // board verisini çekmeden önce In Progress lane'ini Azure'dan tazeliyoruz.
+  try{
+    await fetch('/api/workitems/refresh-inprogress', { method:'POST' });
+  }catch(e){
+    // ignore
+  }
+
+
   const assignee = $('assignee').value.trim();
   const mode = $('mode').value;
 
@@ -1249,14 +1258,19 @@ function renderAssignable(){
   const tagMode = getTagMode();
   const selectedTags = getSelectedTags();
 
+  const isNewState = (st) => {
+    const s = String(st || '').trim().toLowerCase();
+    return s === 'new' || s === 'yeni';
+  };
+
   const filtered = (assignItems || []).filter(x => {
-    const isStory = String(x.workItemType || '').toLowerCase() === 'user story';
-    const typeOk = isStory ? true : itemPassType(x, typeSel);
-    return typeOk && itemPassAssignee(x, assSel) && itemPassTags(x, selectedTags, tagMode);
+    return itemPassType(x, typeSel) && itemPassAssignee(x, assSel) && itemPassTags(x, selectedTags, tagMode);
   });
 
-  const stories = filtered.filter(x => String(x.workItemType || '').toLowerCase() === 'user story');
-  const others = filtered.filter(x => String(x.workItemType || '').toLowerCase() !== 'user story');
+  // Stories lane = State: New (any type)
+  const stories = filtered.filter(x => isNewState(x.state));
+  // Priority columns = Approved Bug/PBI
+  const others = filtered.filter(x => !isNewState(x.state));
 
   const sortedStories = sortByKey(stories, sortBy, sortOrder);
   const sortedOthers = sortByKey(others, sortBy, sortOrder);
@@ -1467,6 +1481,22 @@ if(assignNewTitle) assignNewTitle.addEventListener('keydown', (e) => {
     createNewAssignItem();
   }
 });
+
+const assignNewToggleBtn = $('assign_new_toggle');
+const assignNewPanel = $('assign_new_panel');
+if(assignNewToggleBtn && assignNewPanel){
+  // start collapsed; open only on click
+  assignNewPanel.classList.add('hidden');
+  assignNewToggleBtn.addEventListener('click', () => {
+    const isHidden = assignNewPanel.classList.contains('hidden');
+    assignNewPanel.classList.toggle('hidden', !isHidden);
+    if(isHidden){
+      const titleInp = $('assign_new_title');
+      if(titleInp) titleInp.focus();
+    }
+  });
+}
+
 
 const assignAssigneeSel = $('assign_assignee');
 if(assignAssigneeSel) assignAssigneeSel.addEventListener('change', renderAssignable);

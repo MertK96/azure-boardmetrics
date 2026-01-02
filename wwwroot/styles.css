@@ -272,3 +272,13 @@ td.cellForecastOver{background:#2a2116}
 .aDescEdit{ background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10); color:#fff; border-radius:8px; padding:4px 8px; cursor:pointer; }
 .aDescEdit:hover{ background:rgba(255,255,255,.10); }
 .aDescText{ flex:1; color:rgba(255,255,255,.78); font-size:12px; line-height:1.35; cursor:pointer; white-space:normal; word-break:break-word; }
+
+/* Assignable - New item inline */
+.newItemToggleRow{ margin-top:10px; }
+.newItemToggleBtn{ background:transparent; border:1px solid rgba(255,255,255,.18); color:#dbe7ff; padding:6px 10px; border-radius:8px; cursor:pointer; }
+.newItemToggleBtn:hover{ border-color: rgba(255,255,255,.35); }
+.newItemPanel{ margin-top:8px; }
+.newItemInline{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.newItemInline .niSel{ background:#0e1626; color:#dbe7ff; border:1px solid rgba(255,255,255,.15); border-radius:8px; padding:6px 10px; }
+.newItemInline .niTitle{ flex:1; min-width:260px; background:#0e1626; color:#fff; border:1px solid rgba(255,255,255,.15); border-radius:8px; padding:7px 10px; }
+.niHint{ margin-top:6px; font-size:12px; opacity:.75; }

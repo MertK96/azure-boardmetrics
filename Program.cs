@@ -168,149 +168,139 @@ try
 
 
 // -------------------- Atanacak Maddeler (Assignments) --------------------
+static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
+
 app.MapGet("/api/assignments/items", async (AzdoClient az, int? top, CancellationToken ct) =>
 {
-    static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
-
     try
     {
+        var take = Math.Clamp(top ?? 400, 1, 2000);
+        var projRaw = (az.Options.Project ?? "").Trim();
+        var proj = EscapeWiql(projRaw);
+        var projectClause = string.IsNullOrWhiteSpace(projRaw)
+            ? "" // project empty => query across org scope
+            : $"    [System.TeamProject] = '{proj}'\n    AND ";
 
-    var take = Math.Clamp(top ?? 400, 1, 2000);
-    var projRaw = (az.Options.Project ?? "").Trim();
-    var proj = EscapeWiql(projRaw);
-    var projectClause = string.IsNullOrWhiteSpace(projRaw)
-        ? "" // project empty => query across org scope
-        : $"    [System.TeamProject] = '{proj}'\n    AND ";
-
-    // Only:
-    // - Bug / Product Backlog Item with State=Approved or In Progress (or TR equivalents)
-    // - User Story with State=New (or TR equivalents)
-    var wiql = $@"
-SELECT [System.Id]
+        var wiql = $@"SELECT [System.Id]
 FROM WorkItems
 WHERE
 {projectClause}    [System.State] <> 'Removed'
     AND (
-        ([System.WorkItemType] IN ('Bug','Product Backlog Item') AND [System.State] IN (
-            'Approved','Onaylandı','Onaylandi',
-            'New','Yeni',
-            'In Progress','Active','Doing','Started','Devam Ediyor','Yapılıyor','Yapiliyor'
-        ))
+        (
+            [System.State] IN ('New','Yeni')
+            AND [System.WorkItemType] IN ('User Story','Bug','Product Backlog Item')
+        )
         OR
-        ([System.WorkItemType] = 'User Story' AND [System.State] IN ('New','Yeni'))
+        (
+            [System.State] IN ('Approved','Onaylandı','Onaylandi')
+            AND [System.WorkItemType] IN ('Bug','Product Backlog Item')
+        )
     )
 ORDER BY [System.ChangedDate] DESC";
 
-    var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);
-    ids = ids.Take(take).ToList();
+        var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);
+        ids = ids.Take(take).ToList();
 
-    var fetched = new List<AzdoWorkItem>();
-    foreach (var chunk in ids.Chunk(200))
-    {
-        var batch = await az.GetWorkItemsBatchAsync(chunk, ct, extraFields: new[]{"System.Description"});
-        fetched.AddRange(batch);
-    }
-
-    // Preserve WIQL order
-    var byId = fetched.ToDictionary(x => x.Id, x => x);
-    var list = new List<AssignableItemDto>();
-
-    for (var i = 0; i < ids.Count; i++)
-    {
-        var id = ids[i];
-        if (!byId.TryGetValue(id, out var wi)) continue;
-
-        var type = wi.GetString("System.WorkItemType") ?? "";
-        var state = wi.GetString("System.State") ?? "";
-
-        // Priority (for columns)
-        int? priority = null;
-        var priVal = wi.GetDouble("Microsoft.VSTS.Common.Priority");
-        if (priVal is not null)
+        var fetched = new List<AzdoWorkItem>();
+        foreach (var chunk in ids.Chunk(200))
         {
-            var p = (int)Math.Round(priVal.Value);
-            priority = p;
+            var batch = await az.GetWorkItemsBatchAsync(chunk, ct, extraFields: new[] { "System.Description" });
+            fetched.AddRange(batch);
         }
 
-        // Some processes don't set Priority on PBIs; keep them visible by defaulting to 4.
-        if (priority is null
-            && type.Equals("Product Backlog Item", StringComparison.OrdinalIgnoreCase))
-        {
-            priority = 4;
-        }
-
-        if (priority is not null)
-        {
-            if (priority < 1) priority = 1;
-            if (priority > 4) priority = 4;
-        }
-
-        // Relevance: prefer StackRank/BacklogPriority, fallback to Priority
-        double? relevance = null;
-        foreach (var rf in new[] { "Microsoft.VSTS.Common.StackRank", "Microsoft.VSTS.Common.BacklogPriority" })
-        {
-            relevance = wi.GetDouble(rf);
-            if (relevance is not null) break;
-        }
-        relevance ??= priVal;
-
-        // Tag list
-        var tagsRaw = wi.GetString("System.Tags") ?? "";
-        var tags = tagsRaw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        // Filter: Bug/PBI must land into a column (1..4)
-        static bool IsEligibleBugPbiState(string s)
-            => s.Equals("Approved", StringComparison.OrdinalIgnoreCase)
-               || s.Equals("Onaylandı", StringComparison.OrdinalIgnoreCase)
-               || s.Equals("Onaylandi", StringComparison.OrdinalIgnoreCase)
-               || s.Equals("New", StringComparison.OrdinalIgnoreCase)
-               || s.Equals("Yeni", StringComparison.OrdinalIgnoreCase)
-               || s.Equals("In Progress", StringComparison.OrdinalIgnoreCase)
-               || s.Equals("Active", StringComparison.OrdinalIgnoreCase)
-               || s.Equals("Doing", StringComparison.OrdinalIgnoreCase)
-               || s.Equals("Started", StringComparison.OrdinalIgnoreCase)
-               || s.Equals("Devam Ediyor", StringComparison.OrdinalIgnoreCase)
-               || s.Equals("Yapılıyor", StringComparison.OrdinalIgnoreCase)
-               || s.Equals("Yapiliyor", StringComparison.OrdinalIgnoreCase);
+        var byId = fetched.ToDictionary(x => x.Id, x => x);
+        var list = new List<AssignableItemDto>();
 
         static bool IsNewState(string s)
             => s.Equals("New", StringComparison.OrdinalIgnoreCase)
                || s.Equals("Yeni", StringComparison.OrdinalIgnoreCase);
 
-        if (type.Equals("Bug", StringComparison.OrdinalIgnoreCase)
-            || type.Equals("Product Backlog Item", StringComparison.OrdinalIgnoreCase))
+        for (var i = 0; i < ids.Count; i++)
         {
-            if (priority is null || priority < 1 || priority > 4) continue;
-            if (!IsEligibleBugPbiState(state)) continue;
+            var id = ids[i];
+            if (!byId.TryGetValue(id, out var wi)) continue;
+
+            var type = wi.GetString("System.WorkItemType") ?? "";
+            var state = wi.GetString("System.State") ?? "";
+
+            int? priority = null;
+            var priVal = wi.GetDouble("Microsoft.VSTS.Common.Priority");
+            if (priVal is not null)
+                priority = (int)Math.Round(priVal.Value);
+
+            var isApproved = state.Equals("Approved", StringComparison.OrdinalIgnoreCase)
+                || state.Equals("Onaylandı", StringComparison.OrdinalIgnoreCase)
+                || state.Equals("Onaylandi", StringComparison.OrdinalIgnoreCase);
+
+            if (priority is null
+                && isApproved
+                && type.Equals("Product Backlog Item", StringComparison.OrdinalIgnoreCase))
+            {
+                priority = 4;
+            }
+
+            if (priority is not null)
+            {
+                if (priority < 1) priority = 1;
+                if (priority > 4) priority = 4;
+            }
+
+            double? relevance = null;
+            foreach (var rf in new[] { "Microsoft.VSTS.Common.StackRank", "Microsoft.VSTS.Common.BacklogPriority" })
+            {
+                relevance = wi.GetDouble(rf);
+                if (relevance is not null) break;
+            }
+            relevance ??= priVal;
+
+            var tagsRaw = wi.GetString("System.Tags") ?? "";
+            var tags = tagsRaw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            var isNew = IsNewState(state);
+
+            if (isNew)
+            {
+                if (!(
+                    type.Equals("User Story", StringComparison.OrdinalIgnoreCase)
+                    || type.Equals("Bug", StringComparison.OrdinalIgnoreCase)
+                    || type.Equals("Product Backlog Item", StringComparison.OrdinalIgnoreCase)
+                ))
+                {
+                    continue;
+                }
+            }
+            else
+            {
+                if (!(type.Equals("Bug", StringComparison.OrdinalIgnoreCase)
+                      || type.Equals("Product Backlog Item", StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                if (!isApproved) continue;
+                if (priority is null || priority < 1 || priority > 4) continue;
+            }
+
+            var assigned = wi.GetIdentity("System.AssignedTo");
+
+            list.Add(new AssignableItemDto
+            {
+                OrderIndex = i,
+                Id = wi.Id,
+                Title = wi.GetString("System.Title"),
+                DescriptionHtml = wi.GetString("System.Description"),
+                WorkItemType = type,
+                State = state,
+                Priority = priority,
+                Relevance = relevance,
+                AssignedToDisplayName = assigned?.DisplayName,
+                AssignedToUniqueName = assigned?.UniqueName,
+                CreatedDate = wi.GetDate("System.CreatedDate") ?? DateTimeOffset.MinValue,
+                ChangedDate = wi.GetDate("System.ChangedDate") ?? DateTimeOffset.MinValue,
+                DueDate = wi.GetDate("Microsoft.VSTS.Scheduling.DueDate"),
+                Tags = tags
+            });
         }
 
-        if (type.Equals("User Story", StringComparison.OrdinalIgnoreCase))
-        {
-            if (!IsNewState(state)) continue;
-        }
-
-        var assigned = wi.GetIdentity("System.AssignedTo");
-
-        list.Add(new AssignableItemDto
-        {
-            OrderIndex = i,
-            Id = wi.Id,
-            Title = wi.GetString("System.Title"),
-            DescriptionHtml = wi.GetString("System.Description"),
-            WorkItemType = type,
-            State = state,
-            Priority = priority,
-            Relevance = relevance,
-            AssignedToDisplayName = assigned?.DisplayName,
-            AssignedToUniqueName = assigned?.UniqueName,
-            CreatedDate = wi.GetDate("System.CreatedDate") ?? DateTimeOffset.MinValue,
-            ChangedDate = wi.GetDate("System.ChangedDate") ?? DateTimeOffset.MinValue,
-            DueDate = wi.GetDate("Microsoft.VSTS.Scheduling.DueDate"),
-            Tags = tags
-        });
-    }
-
-    return Results.Ok(list);
+        return Results.Ok(list);
     }
     catch (Exception ex)
     {
@@ -320,22 +310,30 @@ ORDER BY [System.ChangedDate] DESC";
     }
 });
 
-
-
-// -------------------- Kişisel Bazlı Performans --------------------
-
-app.MapMethods("/api/assignments/{id:int}/assignee", new[] { "PATCH" }, async (int id, AssignAssigneeRequest req, AzdoClient az, CancellationToken ct) =>
+app.MapPatch("/api/assignments/{id:int}/assignee", async (int id, AzdoClient az, AppDbContext db, MetricsService metrics, AssigneePatchDto dto, CancellationToken ct) =>
 {
     try
     {
-        await az.UpdateWorkItemAssignedToAsync(id, req.AssigneeUniqueName, ct);
+        var unique = (dto.AssigneeUniqueName ?? "").Trim();
+        await az.UpdateWorkItemAssignedToAsync(id, string.IsNullOrWhiteSpace(unique) ? null : unique, ct);
+
+        var wis = await az.GetWorkItemsBatchAsync(new[] { id }, ct, extraFields: new[] { "System.Description" });
+        var wi = wis.FirstOrDefault() ?? throw new Exception("Work item not found");
+        var revs = await az.ListRevisionsAsync(id, ct);
+        await UpsertFromAzureAsync(db, metrics, az.Options, wi, revs);
+        await db.SaveChangesAsync(ct);
+
         return Results.Ok(new { ok = true });
     }
     catch (Exception ex)
     {
-        return Results.Problem(ex.Message);
+        var msg = ex.Message;
+        if (msg.Length > 1500) msg = msg[..1500];
+        return Results.Problem(detail: msg, statusCode: 502);
     }
 });
+
+// -------------------- Kişisel Bazlı Performans --------------------
 
 
 
@@ -407,19 +405,6 @@ static bool IsAllowedImageUrl(string? url, out Uri? uri, out string error)
     uri = u;
     return true;
 }
-
-app.MapMethods("/api/assignments/{id:int}/assignee", new[] { "PATCH", "POST" }, async (AzdoClient az, int id, UpdateAssigneeRequest req, CancellationToken ct) =>
-{
-    try
-    {
-        await az.UpdateWorkItemAssignedToAsync(id, req.AssigneeUniqueName ?? "", ct);
-        return Results.Ok(new { ok = true, id });
-    }
-    catch (Exception ex)
-    {
-        return Results.Problem(ex.Message, statusCode: 500);
-    }
-});
 
 app.MapMethods("/api/workitems/{id:int}/description", new[] { "PATCH", "POST" }, async (AzdoClient az, int id, UpdateDescriptionRequest req, CancellationToken ct) =>
 {
@@ -987,6 +972,114 @@ app.MapGet("/api/proxy/attachment", async (AzdoClient az, string url, Cancellati
     }
 });
 
+
+
+// Force-refresh In Progress items from Azure DevOps into local DB.
+// Used by the UI "Yenile" button so the board reflects state changes immediately.
+app.MapPost("/api/workitems/refresh-inprogress", async (AzdoClient az, AppDbContext db, MetricsService metrics, AzdoOptions opt, CancellationToken ct) =>
+{
+    var projRaw = az.Options.Project ?? "";
+    var proj = EscapeWiql(projRaw);
+    var projectClause = string.IsNullOrWhiteSpace(projRaw)
+        ? ""
+        : $"    [System.TeamProject] = '{proj}'\n    AND ";
+
+    // Board lane: only In Progress (and TR equivalents)
+    var wiql = $@"SELECT [System.Id]
+FROM WorkItems
+WHERE
+{projectClause}    [System.State] <> 'Removed'
+    AND [System.State] IN ('In Progress','Active','Doing','Started','Devam Ediyor','Yapılıyor','Yapiliyor','İşleniyor','Isleniyor')
+ORDER BY [System.ChangedDate] DESC";
+
+    var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);
+    ids = ids.Take(600).ToList();
+
+    var fetched = new List<AzdoWorkItem>();
+    foreach (var chunk in ids.Chunk(200))
+    {
+        var batch = await az.GetWorkItemsBatchAsync(chunk, ct, extraFields: new[] { "System.Description" });
+        fetched.AddRange(batch);
+    }
+
+    // Upsert with revisions so forecast/pool logic stays consistent
+    foreach (var wi in fetched)
+    {
+        var revisions = await az.ListRevisionsAsync(wi.Id, ct);
+        await UpsertFromAzureAsync(db, metrics, opt, wi, revisions);
+    }
+
+    await db.SaveChangesAsync(ct);
+
+    return Results.Ok(new { ok = true, count = fetched.Count });
+});
+
+static async Task UpsertFromAzureAsync(AppDbContext db, MetricsService metrics, AzdoOptions opt, AzdoWorkItem wi, List<AzdoRevision> revs)
+{
+    var entity = await db.WorkItems.FindAsync(wi.Id);
+    if (entity == null)
+    {
+        // NOTE: DB entity uses CreatedDate/ChangedDate (not CreatedAt/UpdatedAt).
+        entity = new WorkItemEntity
+        {
+            Id = wi.Id,
+            CreatedDate = wi.GetDate("System.CreatedDate") ?? DateTimeOffset.UtcNow,
+            ChangedDate = wi.GetDate("System.ChangedDate") ?? DateTimeOffset.UtcNow
+        };
+        db.WorkItems.Add(entity);
+    }
+
+    entity.Url = wi.Url ?? entity.Url;
+    entity.Title = wi.GetString("System.Title") ?? entity.Title;
+    entity.WorkItemType = wi.GetString("System.WorkItemType") ?? entity.WorkItemType;
+    entity.State = wi.GetString("System.State") ?? entity.State;
+    entity.BoardColumn = wi.GetString("System.BoardColumn") ?? entity.BoardColumn;
+    entity.BoardLane = wi.GetString("System.BoardLane") ?? entity.BoardLane;
+
+    var ident = wi.GetIdentity("System.AssignedTo");
+    entity.AssignedToDisplayName = ident?.DisplayName;
+    entity.AssignedToUniqueName = ident?.UniqueName;
+
+    entity.IterationPath = wi.GetString("System.IterationPath") ?? entity.IterationPath;
+    entity.Tags = wi.GetString("System.Tags") ?? "";
+
+    entity.ChangedDate = wi.GetDate("System.ChangedDate") ?? entity.ChangedDate;
+
+    // Azure effort is numeric; DB stores double?
+    var effort = wi.GetDouble("Microsoft.VSTS.Scheduling.Effort");
+    entity.Effort = effort;
+
+    entity.StartDate =
+        wi.GetDate("Microsoft.VSTS.Scheduling.StartDate")
+        ?? wi.GetDate("Microsoft.VSTS.Common.StateChangeDate")
+        ?? entity.StartDate;
+
+    entity.DueDate = wi.GetDate("Microsoft.VSTS.Scheduling.TargetDate") ?? entity.DueDate;
+
+    // revisions (only fields the DB revision entity has)
+    var existing = db.WorkItemRevisions.Where(r => r.WorkItemId == wi.Id).ToDictionary(r => r.Rev);
+    foreach (var r in revs)
+    {
+        if (!existing.ContainsKey(r.Rev))
+        {
+            var newRow = new WorkItemRevisionEntity
+            {
+                WorkItemId = wi.Id,
+                Rev = r.Rev,
+                ChangedDate = r.ChangedDate,
+                State = r.State,
+                Effort = r.Effort,
+                DueDate = r.DueDate
+            };
+            db.WorkItemRevisions.Add(newRow);
+            existing[r.Rev] = newRow;
+        }
+    }
+
+    var revEntities = existing.Values.OrderBy(x => x.Rev).ToList();
+    metrics.ApplyMetrics(entity, opt, revEntities);
+    metrics.ApplyPoolRules(entity, opt);
+}
 app.MapGet("/api/workitems/{id:int}", async (AppDbContext db, AzdoClient az, int id, CancellationToken ct) =>
 {
     var wi = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
@@ -1164,6 +1257,7 @@ app.MapPost("/api/notes/{feedbackId:long}/resolve", (long feedbackId, ResolveDto
 app.Run();
 
 // -------------------- DTOs --------------------
+public record AssigneePatchDto(string? AssigneeUniqueName);
 public record FeedbackCreate(string? Note);
 public record CommentCreate(string? Text);
 public record ResolveDto(bool IsResolved);
@@ -1364,4 +1458,3 @@ public sealed class CreateWorkItemRequest
     public string? Description { get; set; } // plain text or html
     public int? Priority { get; set; } // 1..4
 }
-

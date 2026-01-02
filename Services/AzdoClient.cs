@@ -14,6 +14,10 @@ public class AzdoOptions
     public string Pat { get; set; } = "";
     public string[] Users { get; set; } = Array.Empty<string>();
 
+    public string? DefaultAreaPath { get; set; }
+    public string? DefaultIterationPath { get; set; }
+
+
     // Board column used for "Code Review Ataması" tab (typo kept intentionally)
     public string ReadyForCodeReviewColumn { get; set; } = "Ready for Code Rewiew";
 
@@ -298,7 +302,18 @@ public async Task UpdateWorkItemAssignedToAsync(int id, string? assigneeUniqueNa
     if (string.IsNullOrWhiteSpace(project))
         throw new Exception("Project boş. AZDO_PROJECT/appsettings üzerinden proje adı gerekli.");
 
-    // JSON Patch: set (or clear) System.AssignedTo
+    
+    var areaPath = (_opt.DefaultAreaPath ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(areaPath))
+    {
+        var team = (_opt.Team ?? "").Trim();
+        areaPath = string.IsNullOrWhiteSpace(team) ? project : $"{project}\\{team}";
+    }
+
+    var iterationPath = (_opt.DefaultIterationPath ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(iterationPath))
+        iterationPath = project;
+// JSON Patch: set (or clear) System.AssignedTo
     var isClear = string.IsNullOrWhiteSpace(assigneeUniqueName);
     object[] patch;
     if (isClear)
@@ -419,13 +434,28 @@ public async Task<AzdoWorkItem> CreateWorkItemAsync(string workItemType, string 
     var type = (workItemType ?? "").Trim();
     var t = (title ?? "").Trim();
 
+
+var areaPath = (_opt.DefaultAreaPath ?? "").Trim();
+if (string.IsNullOrWhiteSpace(areaPath))
+{
+    var team = (_opt.Team ?? "").Trim();
+    areaPath = string.IsNullOrWhiteSpace(team) ? project : $"{project}\\{team}";
+}
+
+var iterationPath = (_opt.DefaultIterationPath ?? "").Trim();
+if (string.IsNullOrWhiteSpace(iterationPath))
+    iterationPath = project;
+
+
     // Create via JSON Patch
     // Note: Setting State directly may fail in some processes; we'll try with state and retry without.
     object[] patchWithStateAndPriority = new object[]
     {
         new { op = "add", path = "/fields/System.Title", value = t },
         new { op = "add", path = "/fields/System.Description", value = (descriptionHtml ?? "") },
-        new { op = "add", path = "/fields/System.State", value = "Approved" },
+        new { op = "add", path = "/fields/System.AreaPath", value = areaPath },
+        new { op = "add", path = "/fields/System.IterationPath", value = iterationPath },
+        new { op = "add", path = "/fields/System.State", value = "New" },
         new { op = "add", path = "/fields/Microsoft.VSTS.Common.Priority", value = Math.Clamp(priority, 1, 4) }
     };
 
@@ -433,7 +463,9 @@ public async Task<AzdoWorkItem> CreateWorkItemAsync(string workItemType, string 
     {
         new { op = "add", path = "/fields/System.Title", value = t },
         new { op = "add", path = "/fields/System.Description", value = (descriptionHtml ?? "") },
-        new { op = "add", path = "/fields/System.State", value = "Approved" }
+        new { op = "add", path = "/fields/System.AreaPath", value = areaPath },
+        new { op = "add", path = "/fields/System.IterationPath", value = iterationPath },
+        new { op = "add", path = "/fields/System.State", value = "New" }
     };
 
     object[] patchMinimal = new object[]
