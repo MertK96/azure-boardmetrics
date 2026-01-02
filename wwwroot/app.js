@@ -2562,7 +2562,7 @@ async function createNewAssignItem(){
     const res = await fetch('/api/workitems', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workItemType, title, description: '', priority, addToTop: true })
+      body: JSON.stringify({ workItemType, title, description: '', priority })
     });
     if(!res.ok){
       const t = await res.text();
@@ -2570,28 +2570,12 @@ async function createNewAssignItem(){
     }
 
     const created = await res.json();
-    // optimistic insert at top (stack order). We also request backend to move-to-top in Azure.
+    // optimistic insert at top of its column (new items should appear immediately)
     titleInp.value = '';
     if(status) status.textContent = `Oluşturuldu: #${created.id}`;
 
-    // Insert a minimal item at the top so the user sees it immediately.
-    // Full fields will be hydrated on next refresh.
-    const newItem = {
-      id: created.id,
-      title,
-      workItemType,
-      state: 'New',
-      priority,
-      relevance: null,
-      assignedToDisplayName: '',
-      assignedToUniqueName: '',
-      createdDate: new Date().toISOString(),
-      changedDate: new Date().toISOString(),
-      dueDate: null,
-      tags: []
-    };
-    assignItems = [newItem, ...(assignItems || [])];
-    renderAssignable();
+    // reload to ensure all fields/state are in sync
+    await loadAssignableItems();
   }catch(err){
     if(status) status.textContent = 'Oluşturma hatası: ' + (err?.message || err);
   }

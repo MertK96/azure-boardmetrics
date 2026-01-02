@@ -196,8 +196,7 @@ WHERE
             AND [System.WorkItemType] IN ('Bug','Product Backlog Item')
         )
     )
--- Backlog stack order (StackRank ASC) so Add to top is deterministic.
-ORDER BY [Microsoft.VSTS.Common.StackRank] ASC";
+ORDER BY [System.ChangedDate] DESC";
 
         var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);
         ids = ids.Take(take).ToList();
@@ -515,29 +514,7 @@ app.MapPost("/api/workitems", async (AzdoClient az, CreateWorkItemRequest req, C
         var pri = req.Priority is null ? 4 : Math.Clamp(req.Priority.Value, 1, 4);
 
         var created = await az.CreateWorkItemAsync(type, title, html, pri, ct);
-
-        // If client requested "add to top", try to move it to the very top of the team's backlog order
-        // (Azure Boards stack order). If this fails (permissions/team config), we still return created id.
-        var moved = false;
-        int? topAnchorId = null;
-        try
-        {
-            if (req.AddToTop == true)
-            {
-                topAnchorId = await az.GetTopBacklogItemIdAsync(ct);
-                if (topAnchorId is not null && topAnchorId.Value > 0)
-                {
-                    await az.MoveWorkItemToTopAsync(created.Id, topAnchorId.Value, ct);
-                    moved = true;
-                }
-            }
-        }
-        catch
-        {
-            // swallow; UI can still optimistic-insert
-        }
-
-        return Results.Ok(new { ok = true, id = created.Id, movedToTop = moved, topAnchorId });
+        return Results.Ok(new { ok = true, id = created.Id });
     }
     catch (Exception ex)
     {
@@ -1497,5 +1474,4 @@ public sealed class CreateWorkItemRequest
     public string? Title { get; set; }
     public string? Description { get; set; } // plain text or html
     public int? Priority { get; set; } // 1..4
-    public bool? AddToTop { get; set; } // if true, attempt to move item to top of backlog stack order
 }
