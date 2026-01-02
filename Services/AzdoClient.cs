@@ -236,6 +236,70 @@ ORDER BY [System.ChangedDate] DESC";
         return ids;
     }
 
+    // Finds the current top item in backlog stack order (best-effort).
+    // We query for the same backlog-ish item set used in the UI and order by StackRank.
+    public async Task<int?> GetTopBacklogItemIdAsync(CancellationToken ct)
+    {
+        static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
+
+        var projRaw = (_opt.Project ?? "").Trim();
+        var proj = EscapeWiql(projRaw);
+        var projectClause = string.IsNullOrWhiteSpace(projRaw)
+            ? ""
+            : $"[System.TeamProject] = '{proj}' AND ";
+
+        // StackRank is the canonical backlog ordering field in Azure Boards.
+        // Smaller values appear higher in backlog.
+        var wiql = $@"SELECT [System.Id]
+FROM WorkItems
+WHERE
+    {projectClause}[System.State] <> 'Removed'
+    AND [System.WorkItemType] IN ('Bug','Product Backlog Item','User Story')
+ORDER BY [Microsoft.VSTS.Common.StackRank] ASC";
+
+        var ids = await QueryWorkItemIdsByWiqlAsync(wiql, ct);
+        if (ids.Count == 0) return null;
+        return ids[0];
+    }
+
+    // Moves a work item to the top of the team's backlog order by inserting it before the given topAnchorId.
+    public async Task MoveWorkItemToTopAsync(int workItemId, int topAnchorId, CancellationToken ct)
+    {
+        var project = (_opt.Project ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(project))
+            throw new Exception("Project boş. AZDO_PROJECT gerekli.");
+
+        var team = (_opt.Team ?? "").Trim();
+
+        string url;
+        if (!string.IsNullOrWhiteSpace(team))
+        {
+            url = $"{Uri.EscapeDataString(project)}/{Uri.EscapeDataString(team)}/_apis/work/workitemsorder?api-version=7.1-preview.1";
+        }
+        else
+        {
+            // Some orgs accept project-only route.
+            url = $"{Uri.EscapeDataString(project)}/_apis/work/workitemsorder?api-version=7.1-preview.1";
+        }
+
+        var payload = new
+        {
+            ids = new[] { workItemId },
+            iterationPath = "",
+            nextId = topAnchorId,
+            previousId = -1,
+            parentId = 0
+        };
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, url);
+        req.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        using var res = await _http.SendAsync(req, ct);
+        var body = await res.Content.ReadAsStringAsync(ct);
+        if (!res.IsSuccessStatusCode)
+            throw new Exception($"WI MoveToTop failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
+    }
+
 
     public async Task AddCommentAsync(int workItemId, string htmlText, CancellationToken ct)
     {
