@@ -933,11 +933,12 @@ ORDER BY [System.ChangedDate] ASC";
 });
 
 
-app.MapGet("/api/workitems", async (AppDbContext db, AzdoOptions opt, string? assignee, string? flagged, int? top) =>
+app.MapGet("/api/workitems", async (AppDbContext db, IOptions<AzdoOptions> opt, string? assignee, string? flagged, int? top) =>
 {
+    var o = opt.Value;
     // Board sekmesi: In Progress (ve süreç/proses varyantları)
     var inProgStates = new HashSet<string>(
-        (opt.StartStates ?? Array.Empty<string>())
+        (o.StartStates ?? Array.Empty<string>())
             .Concat(new[] { "In Progress", "Active", "Doing", "Started", "Devam Ediyor", "Yapılıyor", "Yapiliyor", "İşleniyor", "Isleniyor" })
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Select(x => x.Trim()),
@@ -983,7 +984,7 @@ app.MapGet("/api/proxy/attachment", async (AzdoClient az, string url, Cancellati
 
 // Force-refresh In Progress items from Azure DevOps into local DB.
 // Used by the UI "Yenile" button so the board reflects state changes immediately.
-app.MapPost("/api/workitems/refresh-inprogress", async (AzdoClient az, AppDbContext db, MetricsService metrics, AzdoOptions opt, CancellationToken ct) =>
+app.MapPost("/api/workitems/refresh-inprogress", async (AzdoClient az, AppDbContext db, MetricsService metrics, IOptions<AzdoOptions> opt, CancellationToken ct) =>
 {
     var projRaw = az.Options.Project ?? "";
     var proj = EscapeWiql(projRaw);
@@ -1018,7 +1019,7 @@ ORDER BY [System.ChangedDate] DESC";
     foreach (var wi in fetched)
     {
         var revisions = await az.ListRevisionsAsync(wi.Id, ct);
-        await UpsertFromAzureAsync(db, metrics, opt, wi, revisions);
+        await UpsertFromAzureAsync(db, metrics, opt.Value, wi, revisions);
     }
 
     await db.SaveChangesAsync(ct);
