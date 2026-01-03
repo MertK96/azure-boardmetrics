@@ -31,7 +31,13 @@ public class AzdoOptions
     public string? ReviewOwnerFieldReferenceName { get; set; } = null;
 
     public string EffortField { get; set; } = "Microsoft.VSTS.Scheduling.Effort";
-    public string DueDateField { get; set; } = "Microsoft.VSTS.Scheduling.TargetDate";
+
+    // NOTE: "Due Date" (not Target Date). Can be overridden via env: AZDO_DUE_DATE_FIELD
+    public string DueDateField { get; set; } = "Microsoft.VSTS.Scheduling.DueDate";
+
+    // "Starter Date" is expected to exist only for PBIs (custom field in many processes).
+    // Can be overridden via env: AZDO_STARTER_DATE_FIELD
+    public string StarterDateField { get; set; } = "Custom.StarterDate";
     public string DescriptionField { get; set; } = "Custom.UserStoryProblem";
     public string[] PriorityFields { get; set; } = new[] { "Microsoft.VSTS.Common.Priority", "Microsoft.VSTS.Common.StackRank" };
 
@@ -70,6 +76,10 @@ public class AzdoClient
         _opt.Project = Environment.GetEnvironmentVariable("AZDO_PROJECT") ?? _opt.Project;
         _opt.Team = Environment.GetEnvironmentVariable("AZDO_TEAM") ?? _opt.Team;
         _opt.Pat = Environment.GetEnvironmentVariable("AZDO_PAT") ?? _opt.Pat;
+
+        // Optional field overrides
+        _opt.DueDateField = Environment.GetEnvironmentVariable("AZDO_DUE_DATE_FIELD") ?? _opt.DueDateField;
+        _opt.StarterDateField = Environment.GetEnvironmentVariable("AZDO_STARTER_DATE_FIELD") ?? _opt.StarterDateField;
 
         // Defaults for CreateWorkItem
         _opt.DefaultAreaPath = NormalizePathEnv(Environment.GetEnvironmentVariable("AZDO_DEFAULT_AREA_PATH")) ?? _opt.DefaultAreaPath;
@@ -533,6 +543,46 @@ if (string.IsNullOrWhiteSpace(iterationPath))
         // fallback
         return await TryCreate(patchMinimal, ct);
     }
+}
+
+public async Task UpdateWorkItemDatesAsync(int id, string? workItemType, DateTimeOffset? starterDate, DateTimeOffset? dueDate, CancellationToken ct)
+{
+    var project = (_opt.Project ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(project))
+        throw new Exception("Project boş. AZDO_PROJECT/appsettings üzerinden proje adı gerekli.");
+
+    var type = (workItemType ?? "").Trim().ToLowerInvariant();
+    var isBug = type == "bug";
+    var isPbi = type == "product backlog item" || type == "pbi";
+
+    // JSON Patch. Use date-only (yyyy-MM-dd) to avoid TZ ambiguity.
+    var patch = new List<object>();
+
+    if (dueDate is not null)
+    {
+        patch.Add(new { op = "add", path = $"/fields/{_opt.DueDateField}", value = dueDate.Value.UtcDateTime.ToString("yyyy-MM-dd") });
+    }
+
+    if (starterDate is not null && !isBug)
+    {
+        // Starter date only for PBIs
+        if (isPbi)
+        {
+            patch.Add(new { op = "add", path = $"/fields/{_opt.StarterDateField}", value = starterDate.Value.UtcDateTime.ToString("yyyy-MM-dd") });
+        }
+    }
+
+    if (patch.Count == 0)
+        return;
+
+    var url = $"{project}/_apis/wit/workitems/{id}?api-version=7.1";
+    using var req = new HttpRequestMessage(new HttpMethod("PATCH"), url);
+    req.Content = new StringContent(JsonSerializer.Serialize(patch), Encoding.UTF8, "application/json-patch+json");
+
+    using var res = await _http.SendAsync(req, ct);
+    var body = await res.Content.ReadAsStringAsync(ct);
+    if (!res.IsSuccessStatusCode)
+        throw new Exception($"WI UpdateDates failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
 }
 
 public async Task<List<AzdoUserDto>> GetAzdoUsersAsync(int top, CancellationToken ct)

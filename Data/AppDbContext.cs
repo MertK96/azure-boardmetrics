@@ -50,6 +50,9 @@ public class WorkItemEntity
     public double? Effort { get; set; }
     public DateTimeOffset? DueDate { get; set; }
 
+    // "Starter Date" is a PBI-only field (custom). For Bugs it is expected to be null.
+    public DateTimeOffset? StarterDate { get; set; }
+
     public DateTimeOffset CreatedDate { get; set; }
     public DateTimeOffset ChangedDate { get; set; }
 
