@@ -20,11 +20,6 @@ button:hover{filter:brightness(1.05)}
 .tableWrap{overflow:auto;border:1px solid #223044;border-radius:14px}
 table{border-collapse:collapse;width:100%;min-width:1200px}
 th,td{border-bottom:1px solid #223044;padding:10px 10px;font-size:12px;white-space:nowrap}
-
-/* Clickable date cells (board view) */
-.dateBtn{background:transparent;border:0;padding:0;margin:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
-.dateBtn:hover{text-decoration:underline}
-.dateBtn:focus{outline:1px solid rgba(122,162,247,0.7);outline-offset:2px;border-radius:6px}
 th{position:sticky;top:0;background:#0f1726;text-align:left;color:#97a6b3}
 tr:hover{background:#0f1726}
 
@@ -94,7 +89,6 @@ tr.commitOver:hover{background:#321616}
 /* hücre uyarıları (satır renginden bağımsız daha net) */
 td.cellCommitOver{background:#3a1616}
 td.cellForecastOver{background:#2a2116}
-td.cellAutoDue{outline:1px dashed #7aa2ff; outline-offset:-2px}
 
 
 .build{margin-left:8px;font-size:12px;color:#6ea8ff;opacity:.9}
@@ -107,15 +101,6 @@ td.cellAutoDue{outline:1px dashed #7aa2ff; outline-offset:-2px}
 
 .miniBtn{background:#1f6feb;color:#fff;border:none;border-radius:10px;padding:6px 10px;font-size:12px;cursor:pointer}
 .miniBtn:disabled{opacity:.55;cursor:not-allowed}
-
-/* simple modal */
-.modal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);z-index:9999}
-.modal.hidden{display:none}
-.modalBox{width:min(520px,92vw);background:#0b1220;border:1px solid #223044;border-radius:16px;padding:14px;box-shadow:0 10px 40px rgba(0,0,0,.55)}
-.modalHeader{font-weight:700;margin-bottom:10px}
-.modalRow{display:flex;flex-direction:column;gap:6px;margin:10px 0}
-.modalRow input{background:#0f1726;border:1px solid #223044;color:#e6edf3;border-radius:10px;padding:8px 10px}
-.modalActions{display:flex;gap:10px;justify-content:flex-end;margin-top:12px}
 
 
 .reviewOwnerSelect{min-width:260px}

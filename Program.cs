@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Text.RegularExpressions;
 using AzdoBoardMetrics.Data;
-using AzdoBoardMetrics.Models;
 using AzdoBoardMetrics.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -447,46 +446,6 @@ app.MapMethods("/api/workitems/{id:int}/description", new[] { "PATCH", "POST" },
     }
 });
 
-	
-app.MapMethods("/api/workitems/{id:int}/dates", new[] { "PATCH", "POST" }, async (AzdoClient az, AppDbContext db, MetricsService metrics, IOptions<AzdoOptions> opt, int id, UpdateDatesRequest req, CancellationToken ct) =>
-{
-    DateTimeOffset? Parse(string? s)
-    {
-        if (string.IsNullOrWhiteSpace(s)) return null;
-        // Accept ISO, yyyy-MM-dd, or datetime-local
-        if (DateTimeOffset.TryParse(s, out var dto))
-            return dto;
-        if (DateTime.TryParse(s, out var dt))
-            return new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc));
-        return null;
-    }
-
-    var start = Parse(req.StartDate);
-    var due = Parse(req.DueDate);
-
-    // Update in Azure first
-    await az.UpdateWorkItemDatesAsync(id, start, due, ct);
-
-    // Refresh local cache to reflect new metrics
-    try
-    {
-        // Fetch single item using the batch API (keeps field selection consistent across processes)
-        var wi = (await az.GetWorkItemsBatchAsync(new[] { id }, ct, extraFields: new[] { "System.Description" }))
-            .FirstOrDefault();
-        if (wi == null)
-            return Results.NotFound(new { message = $"Work item {id} not found." });
-        var revs = await az.ListRevisionsAsync(id, ct);
-        await UpsertFromAzureAsync(db, metrics, opt.Value, wi, revs);
-        await db.SaveChangesAsync(ct);
-    }
-    catch
-    {
-        // Even if cache refresh fails, date update already succeeded.
-    }
-
-    return Results.Ok(new { ok = true });
-});
-
 
 
 app.MapGet("/api/proxy/image", async (HttpContext http, AzdoClient az, string url, CancellationToken ct) =>
@@ -555,10 +514,6 @@ app.MapPost("/api/workitems", async (AzdoClient az, CreateWorkItemRequest req, C
         var pri = req.Priority is null ? 4 : Math.Clamp(req.Priority.Value, 1, 4);
 
         var created = await az.CreateWorkItemAsync(type, title, html, pri, ct);
-
-        // Make it show up at the top of the team backlog (Azure UI does a similar call).
-        await az.TryMoveWorkItemToTopAsync(created.Id, ct);
-
         return Results.Ok(new { ok = true, id = created.Id });
     }
     catch (Exception ex)
@@ -576,33 +531,44 @@ app.MapGet("/api/performance/summary", async (AzdoClient az, string users, int y
         var take = Math.Clamp(top ?? 1200, 1, 5000);
 
 
-// period range (year/month/week)
-var w = (week ?? "all").Trim().ToLowerInvariant();
-var isAll = w == "" || w == "all" || w == "hepsi";
+        // period range (year/month/week)
+        var weekToken = (week ?? "all").Trim().ToLowerInvariant();
+        var isWeekAll = weekToken == "" || weekToken == "all" || weekToken == "hepsi";
 
-var mStart = new DateTime(year, month, 1);
-var daysInMonth = DateTime.DaysInMonth(year, month);
+        DateTime start;
+        DateTime endExclusive;
 
-DateTime start = mStart;
-DateTime endExclusive = mStart.AddMonths(1);
-
-if (!isAll)
+// month=0 => all months in year
+if (month <= 0)
 {
-    if (!int.TryParse(w, out var wn)) wn = 1;
-    if (wn < 1) wn = 1;
-    if (wn > 5) wn = 5;
-
-    var startDay = 1 + (wn - 1) * 7;
-    if (startDay > daysInMonth) startDay = Math.Max(1, daysInMonth - 6);
-
-    var endDay = Math.Min(startDay + 6, daysInMonth);
-
-    start = new DateTime(year, month, startDay);
-    endExclusive = new DateTime(year, month, endDay).AddDays(1);
+    start = new DateTime(year, 1, 1);
+    endExclusive = start.AddYears(1);
 }
+else
+{
+    var mStart = new DateTime(year, month, 1);
+    var dim = DateTime.DaysInMonth(year, month);
 
-var sinceStr = start.ToString("yyyy-MM-dd");
-var untilStr = endExclusive.ToString("yyyy-MM-dd");
+    start = mStart;
+    endExclusive = mStart.AddMonths(1);
+
+    if (!isWeekAll)
+    {
+        if (!int.TryParse(weekToken, out var wn)) wn = 1;
+        if (wn < 1) wn = 1;
+        if (wn > 5) wn = 5;
+
+        var startDay = 1 + (wn - 1) * 7;
+        if (startDay > dim) startDay = Math.Max(1, dim - 6);
+
+        var endDay = Math.Min(startDay + 6, dim);
+
+        start = new DateTime(year, month, startDay);
+        endExclusive = new DateTime(year, month, endDay).AddDays(1);
+    }
+}
+        var sinceStr = start.ToString("yyyy-MM-dd");
+        var untilStr = endExclusive.ToString("yyyy-MM-dd");
 
         var projRaw = (az.Options.Project ?? "").Trim();
         var proj = EscapeWiql(projRaw);
@@ -680,7 +646,11 @@ ORDER BY [System.ChangedDate] DESC";
             var fetched = new List<AzdoWorkItem>();
             foreach (var chunk in ids.Chunk(200))
             {
-                var batch = await az.GetWorkItemsBatchAsync(chunk, ct);
+                var batch = await az.GetWorkItemsBatchAsync(chunk, ct, new[]
+                {
+                    "Microsoft.VSTS.Common.ClosedDate",
+                    "Microsoft.VSTS.Common.ResolvedDate"
+                });
                 fetched.AddRange(batch);
             }
 
@@ -705,7 +675,13 @@ ORDER BY [System.ChangedDate] DESC";
 
                 if (IsDone(state))
                 {
-                    done++;
+                    // Count by first "Done" date (ClosedDate preferred, then ResolvedDate)
+                    var dd = wi.GetDate("Microsoft.VSTS.Common.ClosedDate") ?? wi.GetDate("Microsoft.VSTS.Common.ResolvedDate");
+                    if (dd.HasValue)
+                    {
+                        var d = dd.Value.UtcDateTime;
+                        if (d >= start && d < endExclusive) done++;
+                    }
                 }
                 else if (IsInProgress(state))
                 {
@@ -762,28 +738,40 @@ app.MapGet("/api/performance/done", async (AzdoClient az, string user, int year,
         var take = Math.Clamp(top ?? 2000, 1, 10000);
 
         // date range: month or week-in-month (1..5). week=all => month
-        var daysInMonth = DateTime.DaysInMonth(year, month);
-        var mStart = new DateTime(year, month, 1);
+        var weekToken = (week ?? "all").Trim().ToLowerInvariant();
+        var isWeekAll = weekToken == "" || weekToken == "all" || weekToken == "hepsi";
 
-        var w = (week ?? "all").Trim().ToLowerInvariant();
-        var isAll = w == "" || w == "all" || w == "hepsi";
+        DateTime start;
+        DateTime endExclusive;
 
-        DateTime start = mStart;
-        DateTime endExclusive = mStart.AddMonths(1);
-
-        if (!isAll)
+        // month=0 => all months in year
+        if (month <= 0)
         {
-            if (!int.TryParse(w, out var wn)) wn = 1;
-            if (wn < 1) wn = 1;
-            if (wn > 5) wn = 5;
+            start = new DateTime(year, 1, 1);
+            endExclusive = start.AddYears(1);
+        }
+        else
+        {
+            var mStart = new DateTime(year, month, 1);
+            var dim = DateTime.DaysInMonth(year, month);
 
-            var startDay = 1 + (wn - 1) * 7;
-            if (startDay > daysInMonth) startDay = Math.Max(1, daysInMonth - 6);
+            start = mStart;
+            endExclusive = mStart.AddMonths(1);
 
-            var endDay = Math.Min(startDay + 6, daysInMonth);
+            if (!isWeekAll)
+            {
+                if (!int.TryParse(weekToken, out var wn)) wn = 1;
+                if (wn < 1) wn = 1;
+                if (wn > 5) wn = 5;
 
-            start = new DateTime(year, month, startDay);
-            endExclusive = new DateTime(year, month, endDay).AddDays(1);
+                var startDay = 1 + (wn - 1) * 7;
+                if (startDay > dim) startDay = Math.Max(1, dim - 6);
+
+                var endDay = Math.Min(startDay + 6, dim);
+
+                start = new DateTime(year, month, startDay);
+                endExclusive = new DateTime(year, month, endDay).AddDays(1);
+            }
         }
 
         var sinceStr = start.ToString("yyyy-MM-dd");
@@ -828,9 +816,12 @@ WHERE
     AND {assignedClause}
     AND [System.WorkItemType] IN ('Bug','Product Backlog Item')
     AND [System.State] IN ({doneIn})
-    AND [System.ChangedDate] >= '{sinceStr}'
-    AND [System.ChangedDate] < '{untilStr}'
-ORDER BY [System.ChangedDate] ASC";
+    AND (
+        ([Microsoft.VSTS.Common.ClosedDate] >= '{sinceStr}' AND [Microsoft.VSTS.Common.ClosedDate] < '{untilStr}')
+        OR
+        ([Microsoft.VSTS.Common.ResolvedDate] >= '{sinceStr}' AND [Microsoft.VSTS.Common.ResolvedDate] < '{untilStr}')
+    )
+ORDER BY [Microsoft.VSTS.Common.ClosedDate] ASC, [Microsoft.VSTS.Common.ResolvedDate] ASC";
 
         var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);
         ids = ids.Take(take).ToList();
@@ -1373,11 +1364,8 @@ public record WorkItemDto
     public DateTimeOffset CreatedDate { get; init; }
     public DateTimeOffset ChangedDate { get; init; }
     public DateTimeOffset? StartDate { get; init; }
-    public DateTimeOffset? InProgressDate { get; init; }
     public DateTimeOffset? DoneDate { get; init; }
     public DateTimeOffset? DueDateSetDate { get; init; }
-    public DateTimeOffset? EffectiveDueDate { get; init; }
-    public string? EffectiveDueDateSource { get; init; }
     public int? ExpectedDays { get; init; }
     public DateTimeOffset? ForecastDueDate { get; init; }
     public int? CommitmentVarianceDays { get; init; }
@@ -1436,11 +1424,8 @@ public static class DtoMapper
         CreatedDate = x.CreatedDate,
         ChangedDate = x.ChangedDate,
         StartDate = x.StartDate,
-        InProgressDate = x.InProgressDate,
         DoneDate = x.DoneDate,
         DueDateSetDate = x.DueDateSetDate,
-        EffectiveDueDate = x.EffectiveDueDate,
-        EffectiveDueDateSource = x.EffectiveDueDateSource,
         ExpectedDays = x.ExpectedDays,
         ForecastDueDate = x.ForecastDueDate,
         CommitmentVarianceDays = x.CommitmentVarianceDays,

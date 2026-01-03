@@ -31,19 +31,11 @@ public class AzdoOptions
     public string? ReviewOwnerFieldReferenceName { get; set; } = null;
 
     public string EffortField { get; set; } = "Microsoft.VSTS.Scheduling.Effort";
-    public string DueDateField { get; set; } = "Microsoft.VSTS.Scheduling.DueDate";
-    // Used by the UI to edit "Start". Some processes hide it for Bugs, but the field can still exist.
-    // "Starter Date" field reference name (often a custom field).
-    // Env override: AZDO_STARTER_DATE_FIELD
-    public string StarterDateField { get; set; } = "Custom.StarterDate";
-
-    // Backward compatibility (older config/UI). If set, it will be used as a fallback for StarterDateField.
-    public string? StartDateField { get; set; } = "Microsoft.VSTS.Scheduling.StartDate";
+    public string DueDateField { get; set; } = "Microsoft.VSTS.Scheduling.TargetDate";
     public string DescriptionField { get; set; } = "Custom.UserStoryProblem";
     public string[] PriorityFields { get; set; } = new[] { "Microsoft.VSTS.Common.Priority", "Microsoft.VSTS.Common.StackRank" };
 
     public string[] StartStates { get; set; } = new[] { "Active", "In Progress" };
-    public string[] InProgressStates { get; set; } = new[] { "In Progress" };
     public string[] DoneStates { get; set; } = new[] { "Done", "Closed", "Resolved" };
 
     public double WorkdayEffortPerDay { get; set; } = 4.0;
@@ -418,51 +410,6 @@ public async Task UpdateWorkItemDescriptionAsync(int id, string descriptionHtml,
     }
 }
 
-public async Task UpdateWorkItemDatesAsync(int id, DateTimeOffset? startDate, DateTimeOffset? dueDate, CancellationToken ct)
-{
-    var project = (_opt.Project ?? "").Trim();
-    if (string.IsNullOrWhiteSpace(project))
-        throw new Exception("Project boş. AZDO_PROJECT/appsettings üzerinden proje adı gerekli.");
-
-    var ops = new List<object>();
-
-    // Start
-    var starterField = !string.IsNullOrWhiteSpace(_opt.StarterDateField)
-            ? _opt.StarterDateField
-            : _opt.StartDateField;
-
-        if (!string.IsNullOrWhiteSpace(starterField))
-    {
-        if (startDate is null)
-            ops.Add(new { op = "remove", path = $"/fields/{EscapeJsonPatchField(starterField!)}" });
-        else
-            ops.Add(new { op = "add", path = $"/fields/{EscapeJsonPatchField(starterField!)}", value = startDate.Value.UtcDateTime.ToString("o") });
-    }
-
-    // Due
-    if (!string.IsNullOrWhiteSpace(_opt.DueDateField))
-    {
-        if (dueDate is null)
-            ops.Add(new { op = "remove", path = $"/fields/{EscapeJsonPatchField(_opt.DueDateField)}" });
-        else
-            ops.Add(new { op = "add", path = $"/fields/{EscapeJsonPatchField(_opt.DueDateField)}", value = dueDate.Value.UtcDateTime.ToString("o") });
-    }
-
-    if (ops.Count == 0)
-        return;
-
-    var url = $"{project}/_apis/wit/workitems/{id}?api-version=7.1-preview.3";
-    using var req = new HttpRequestMessage(new HttpMethod("PATCH"), url);
-    req.Content = new StringContent(JsonSerializer.Serialize(ops), Encoding.UTF8, "application/json-patch+json");
-
-    using var res = await _http.SendAsync(req, ct);
-    if (!res.IsSuccessStatusCode)
-    {
-        var body = await res.Content.ReadAsStringAsync(ct);
-        throw new Exception($"WI UpdateDates failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
-    }
-}
-
     // Upload attachment (used for pasting images into description)
     // Returns the attachment URL (can be embedded into System.Description as <img src="...">)
     public async Task<string> UploadAttachmentAsync(string fileName, byte[] bytes, string? contentType, CancellationToken ct)
@@ -588,92 +535,7 @@ if (string.IsNullOrWhiteSpace(iterationPath))
     }
 }
 
-    /// <summary>
-    /// Best-effort: moves a work item to the top of the team backlog ordering.
-    /// Azure DevOps web UI typically calls the WorkItemsOrder endpoint right after creation
-    /// (previousId=-1 + nextId=some current item). This is optional; if it fails we just skip.
-    /// </summary>
-    /// <summary>
-    /// Best-effort: moves a work item to the top of the team backlog ordering.
-    /// Azure DevOps web UI typically calls the WorkItemsOrder endpoint right after creation.
-    /// This is optional; if it fails we just skip (creation still succeeds).
-    /// </summary>
-    public async Task TryMoveWorkItemToTopAsync(int workItemId, CancellationToken ct)
-    {
-        try
-        {
-            var project = (_opt.Project ?? "").Trim();
-            var team = (_opt.Team ?? "").Trim();
-            if (string.IsNullOrWhiteSpace(project) || string.IsNullOrWhiteSpace(team))
-                return;
-
-            // We need an anchor that is already in the TEAM backlog ordering.
-            // Using "most recently changed" can pick the newly created item itself, which becomes a no-op.
-            // Azure Boards backlog ordering is primarily driven by StackRank, so we pick the current TOP item
-            // (smallest StackRank) within the team's default area path, and exclude the new item.
-            var area = (_opt.DefaultAreaPath ?? "").Trim();
-            var projEsc = EscapeWiql(project);
-            var areaEsc = EscapeWiql(area);
-
-            var whereArea = string.IsNullOrWhiteSpace(area)
-                ? ""
-                : $" AND [System.AreaPath] UNDER '{areaEsc}'";
-
-            // Note: StackRank exists for backlog items. If it doesn't for a given type/process,
-            // the query may fail; in that case we simply skip moving.
-            var wiql = $@"
-SELECT TOP 1 [System.Id]
-FROM WorkItems
-WHERE
-    [System.TeamProject] = '{projEsc}'
-    AND [System.Id] <> {workItemId}
-    AND [System.State] <> 'Removed'
-{whereArea}
-ORDER BY [Microsoft.VSTS.Common.StackRank] ASC";
-
-            int nextId;
-            try
-            {
-                var ids = await QueryWorkItemIdsByWiqlAsync(wiql, ct);
-                nextId = ids.FirstOrDefault();
-            }
-            catch
-            {
-                // If StackRank is not queryable in this project/process, bail out silently.
-                return;
-            }
-
-            if (nextId <= 0)
-                return;
-
-            // Reorder Product Backlog / Boards work items (team-scoped).
-            // Docs: PATCH https://dev.azure.com/{org}/{project}/{team}/_apis/work/workitemsorder?api-version=7.1
-            // To move to the beginning: use previousId = 0 (beginning) and nextId = current first item.
-            var url = $"{Uri.EscapeDataString(project)}/{Uri.EscapeDataString(team)}/_apis/work/workitemsorder?api-version=7.1";
-            var payload = JsonSerializer.Serialize(new
-            {
-                ids = new[] { workItemId },
-                parentId = 0,
-                previousId = 0,
-                nextId = nextId,
-                iterationPath = ""
-            });
-
-            using var res = await _http.PatchAsync(
-                url,
-                new StringContent(payload, Encoding.UTF8, "application/json"),
-                ct);
-
-            // If this fails (permissions, wrong anchor, etc.) we ignore.
-            _ = res.IsSuccessStatusCode;
-        }
-        catch
-        {
-            // best-effort, ignore
-        }
-    }
-
-    public async Task<List<AzdoUserDto>> GetAzdoUsersAsync(int top, CancellationToken ct)
+public async Task<List<AzdoUserDto>> GetAzdoUsersAsync(int top, CancellationToken ct)
     {
         var org = GetOrganizationName();
         if (string.IsNullOrWhiteSpace(org))
@@ -852,21 +714,6 @@ private async Task<string?> GetReviewOwnerFieldRefAsync(CancellationToken ct)
         }
     }
 
-
-    // Ensure date/effort fields are fetched for metrics + editing
-    if (!string.IsNullOrWhiteSpace(_opt.EffortField) && !fields.Contains(_opt.EffortField))
-        fields.Add(_opt.EffortField);
-
-    if (!string.IsNullOrWhiteSpace(_opt.DueDateField) && !fields.Contains(_opt.DueDateField))
-        fields.Add(_opt.DueDateField);
-
-    if (!string.IsNullOrWhiteSpace(_opt.StarterDateField) && !fields.Contains(_opt.StarterDateField))
-        fields.Add(_opt.StarterDateField);
-
-    // Backward-compat fallback field; safe to include (ignored if unknown in process)
-    if (!string.IsNullOrWhiteSpace(_opt.StartDateField) && !fields.Contains(_opt.StartDateField))
-        fields.Add(_opt.StartDateField);
-
     if (extraFields is not null)
     {
         foreach (var ef in extraFields)
@@ -888,19 +735,6 @@ private async Task<string?> GetReviewOwnerFieldRefAsync(CancellationToken ct)
         return await GetWorkItemsBatchInternalAsync(idList, fields, ct);
     }
 }
-
-	/// <summary>
-	/// Convenience wrapper for fetching a single work item.
-	/// Uses the batch endpoint under the hood to keep field selection behavior consistent.
-	/// </summary>
-	public async Task<AzdoWorkItem> GetWorkItemAsync(int id, CancellationToken ct, IEnumerable<string>? extraFields = null)
-	{
-	    var list = await GetWorkItemsBatchAsync(new[] { id }, ct, extraFields);
-	    var wi = list.FirstOrDefault();
-	    if (wi == null)
-	        throw new InvalidOperationException($"Work item {id} not found.");
-	    return wi;
-	}
 
 private async Task<List<AzdoWorkItem>> GetWorkItemsBatchInternalAsync(int[] idList, List<string> fields, CancellationToken ct)
 {
@@ -1039,13 +873,6 @@ private async Task<List<AzdoWorkItem>> GetWorkItemsBatchInternalAsync(int[] idLi
     }
 
     private static string EscapeWiql(string s) => s.Replace("'", "''");
-
-    private static string EscapeJsonPatchField(string fieldRefName)
-    {
-        // JSON Patch path segment escaping: '~' => '~0', '/' => '~1'
-        // Dots are fine.
-        return (fieldRefName ?? "").Replace("~", "~0").Replace("/", "~1");
-    }
 }
 
 public record AzdoIdentity(string? DisplayName, string? UniqueName);

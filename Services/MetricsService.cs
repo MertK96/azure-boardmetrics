@@ -10,7 +10,6 @@ public class MetricsService
         var ordered = revs.OrderBy(r => r.Rev).ToList();
 
         wi.StartDate = FindFirstStateEnter(ordered, opt.StartStates) ?? wi.StartDate;
-        wi.InProgressDate = FindFirstStateEnter(ordered, opt.InProgressStates) ?? wi.InProgressDate;
         wi.DoneDate = FindFirstStateEnter(ordered, opt.DoneStates) ?? wi.DoneDate;
 
         // DueDateSetDate: first revision where DueDate became non-null
@@ -25,11 +24,9 @@ public class MetricsService
         wi.ExpectedDays = wi.Effort is null ? null : ComputeExpectedDays(wi.Effort.Value, opt.WorkdayEffortPerDay, opt.ExpectedDaysRounding);
 
         // Forecast due date
-        // If StartDate is missing (often on Bugs), fall back to InProgressDate.
-        var forecastBase = wi.StartDate ?? wi.InProgressDate;
-        if (forecastBase is not null && wi.ExpectedDays is not null)
+        if (wi.StartDate is not null && wi.ExpectedDays is not null)
         {
-            var start = forecastBase.Value.Date;
+            var start = wi.StartDate.Value.Date;
             var forecast = opt.UseBusinessDays ? AddBusinessDays(start, wi.ExpectedDays.Value) : start.AddDays(wi.ExpectedDays.Value);
             wi.ForecastDueDate = new DateTimeOffset(forecast, TimeSpan.Zero);
         }
@@ -38,36 +35,19 @@ public class MetricsService
             wi.ForecastDueDate = null;
         }
 
-        // EffectiveDueDate: if DueDate exists use it; otherwise fall back to ForecastDueDate.
-        if (wi.DueDate is not null)
-        {
-            wi.EffectiveDueDate = wi.DueDate;
-            wi.EffectiveDueDateSource = "due";
-        }
-        else if (wi.ForecastDueDate is not null)
-        {
-            wi.EffectiveDueDate = wi.ForecastDueDate;
-            wi.EffectiveDueDateSource = "forecast";
-        }
-        else
-        {
-            wi.EffectiveDueDate = null;
-            wi.EffectiveDueDateSource = null;
-        }
-
         // Variances (only when DoneDate exists)
         if (wi.DoneDate is not null)
         {
             var done = wi.DoneDate.Value.Date;
 
-            if (wi.EffectiveDueDate is not null)
-                wi.CommitmentVarianceDays = DaysBetween(wi.EffectiveDueDate.Value.Date, done);
+            if (wi.DueDate is not null)
+                wi.CommitmentVarianceDays = DaysBetween(wi.DueDate.Value.Date, done);
 
             if (wi.ForecastDueDate is not null)
                 wi.ForecastVarianceDays = DaysBetween(wi.ForecastDueDate.Value.Date, done);
 
-            if (wi.EffectiveDueDate is not null && wi.ForecastDueDate is not null)
-                wi.SlackDays = DaysBetween(wi.ForecastDueDate.Value.Date, wi.EffectiveDueDate.Value.Date);
+            if (wi.DueDate is not null && wi.ForecastDueDate is not null)
+                wi.SlackDays = DaysBetween(wi.ForecastDueDate.Value.Date, wi.DueDate.Value.Date);
         }
         else
         {

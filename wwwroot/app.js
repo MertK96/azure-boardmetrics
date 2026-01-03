@@ -24,26 +24,7 @@ let azdoUsers = [];
 
 let activeTab = 'note'; // 'note' | 'comment'
 
-// Board view cache (used for inline actions like date edit)
-let boardItems = [];
-
 function pad2(n){ return String(n).padStart(2,'0'); }
-
-function makeDateEditCell(wi, field, text, extraClass){
-  const td = document.createElement('td');
-  if(extraClass) td.className = extraClass;
-
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'dateBtn';
-  btn.dataset.id = String(wi.id);
-  btn.dataset.field = field; // 'start' | 'due'
-  btn.textContent = text || '—';
-  btn.title = field === 'start' ? 'Start Date güncelle' : 'Due Date güncelle';
-
-  td.appendChild(btn);
-  return td;
-}
 
 function n2(v){
   const x = Math.round((Number(v) || 0) * 100) / 100;
@@ -229,11 +210,11 @@ function titleCell(wi){
  * Not: Start+Effort+Due+ForecastDue varsa anlamlı.
  */
 function forecastMismatchClass(wi){
+  if(!wi.startDate) return '';
   if(wi.effort == null) return '';
-  const dd = wi.effectiveDueDate ?? wi.dueDate;
-  if(!dd || !wi.forecastDueDate) return '';
+  if(!wi.dueDate || !wi.forecastDueDate) return '';
 
-  const due = dateKey(dd);
+  const due = dateKey(wi.dueDate);
   const fc = dateKey(wi.forecastDueDate);
   if(!due || !fc) return '';
 
@@ -246,9 +227,8 @@ function forecastMismatchClass(wi){
  * İstek: Start→Due ayrı renk (pratikte Due <= Today olduğunda belirginleşir)
  */
 function commitmentOverdue(wi){
-  const dd = wi.effectiveDueDate ?? wi.dueDate;
-  if(!dd) return false;
-  const due = dateKey(dd);
+  if(!wi.dueDate) return false;
+  const due = dateKey(wi.dueDate);
   if(!due) return false;
   return due <= todayKey();
 }
@@ -480,34 +460,7 @@ async function load(){
     return;
   }
 
-  let data = await res.json();
-
-  // Normalize keys (API uses camelCase, but keep compatibility)
-  data = (Array.isArray(data) ? data : []).map(x => ({
-    id: x.id ?? x.Id,
-    title: x.title ?? x.Title,
-    workItemType: x.workItemType ?? x.WorkItemType,
-    state: x.state ?? x.State,
-    assignedToDisplayName: x.assignedToDisplayName ?? x.AssignedToDisplayName,
-    assignedToUniqueName: x.assignedToUniqueName ?? x.AssignedToUniqueName,
-    effort: x.effort ?? x.Effort,
-    startDate: x.startDate ?? x.StartDate,
-    inProgressDate: x.inProgressDate ?? x.InProgressDate,
-    dueDate: x.dueDate ?? x.DueDate,
-    effectiveDueDate: x.effectiveDueDate ?? x.EffectiveDueDate,
-    effectiveDueDateSource: x.effectiveDueDateSource ?? x.EffectiveDueDateSource,
-    doneDate: x.doneDate ?? x.DoneDate,
-    expectedDays: x.expectedDays ?? x.ExpectedDays,
-    forecastDueDate: x.forecastDueDate ?? x.ForecastDueDate,
-    forecastVarianceDays: x.forecastVarianceDays ?? x.ForecastVarianceDays,
-    slackDays: x.slackDays ?? x.SlackDays,
-    needsFeedback: x.needsFeedback ?? x.NeedsFeedback,
-    poolReason: x.poolReason ?? x.PoolReason,
-    changedDate: x.changedDate ?? x.ChangedDate,
-  }));
-
-  // keep a copy for inline actions (date edit from table cells)
-  boardItems = data;
+  const data = await res.json();
 
   const tbody = $('tbl').querySelector('tbody');
   tbody.innerHTML = '';
@@ -534,18 +487,10 @@ async function load(){
     tr.appendChild(cell(wi.assignedToUniqueName ?? wi.assignedToDisplayName ?? ''));
     tr.appendChild(cell(wi.state));
     tr.appendChild(cell(wi.effort ?? ''));
-    tr.appendChild(dateEditCell(wi, 'start'));
-    tr.appendChild(cell(fmtDate(wi.inProgressDate)));
+    tr.appendChild(cell(fmtDate(wi.startDate)));
 
-    // Due cell (use effective due; if it's auto (forecast), show marker)
-    const dueText = fmtDate(wi.effectiveDueDate ?? wi.dueDate);
-    const dueCls = isCommitOver ? 'cellCommitOver' : '';
-    const dueEl = dateEditCell(wi, 'due', dueText, dueCls);
-    if(wi.effectiveDueDateSource === 'forecast' && dueText){
-      dueEl.title = 'Due yoktu: ForecastDue baz alındı';
-      dueEl.classList.add('cellAutoDue');
-    }
-    tr.appendChild(dueEl);
+    // Due cell
+    tr.appendChild(cell(fmtDate(wi.dueDate), isCommitOver ? 'cellCommitOver' : ''));
 
     tr.appendChild(cell(fmtDate(wi.doneDate)));
     tr.appendChild(cell(wi.expectedDays ?? ''));
@@ -561,27 +506,6 @@ async function load(){
   }
 
   $('status').textContent = `ok (${data.length})`;
-}
-
-function dateEditCell(wi, field, textOverride, extraCls){
-  const td = document.createElement('td');
-  if(extraCls) td.className = extraCls;
-
-  const raw = field === 'start' ? wi.startDate : wi.dueDate;
-  const txt = (textOverride !== undefined) ? (textOverride || '') : fmtDate(raw);
-
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'dateBtn';
-  btn.dataset.id = String(wi.id);
-  btn.dataset.field = field;
-  btn.textContent = txt || '—';
-  btn.title = field === 'start'
-    ? 'Start Date güncelle'
-    : 'Due Date güncelle';
-
-  td.appendChild(btn);
-  return td;
 }
 
 async function openDetail(id){
@@ -637,16 +561,6 @@ async function openDetail(id){
 
   $('d_url').href = buildBoardUrl(wi.id);
 
-  // Dates panel
-  const datesText = `Start: ${fmtDate(wi.startDate) || '-'} | In Progress: ${fmtDate(wi.inProgressDate) || '-'} | Due: ${fmtDate(wi.dueDate) || '-'} | Effective: ${fmtDate(wi.effectiveDueDate) || '-'}`;
-  const datesEl = $('d_dates');
-  if(datesEl) datesEl.textContent = datesText;
-
-  const editDatesBtn = $('d_dates_edit');
-  if(editDatesBtn){
-    editDatesBtn.onclick = () => openDatesModal(wi);
-  }
-
   renderList('fb_list', (data.feedback || []).map(f => `${fmtDate(f.createdAt)} - ${f.note}`));
 
   if(descEl){
@@ -683,80 +597,6 @@ async function openDetail(id){
     const btn = $('d_desc_edit');
     if(btn) btn.onclick = openEdit;
   }
-}
-
-function toDateInputValue(d){
-  if(!d) return '';
-  const dt = new Date(d);
-  if(Number.isNaN(dt.getTime())) return '';
-  const y = dt.getFullYear();
-  const m = String(dt.getMonth()+1).padStart(2,'0');
-  const day = String(dt.getDate()).padStart(2,'0');
-  return `${y}-${m}-${day}`;
-}
-
-async function openDatesModal(wi, mode = 'both'){
-  const modal = $('dateModal');
-  if(!modal) return;
-
-  const rowStart = $('row_start');
-  const rowDue = $('row_due');
-  const titleEl = $('dateModalTitle');
-
-  $('dates_status').textContent = '';
-  $('edit_start').value = toDateInputValue(wi.startDate);
-  $('edit_due').value = toDateInputValue(wi.dueDate);
-
-  // per-field mode (table cell click)
-  const isStartOnly = mode === 'start';
-  const isDueOnly = mode === 'due';
-  if(rowStart) rowStart.classList.toggle('hidden', isDueOnly);
-  if(rowDue) rowDue.classList.toggle('hidden', isStartOnly);
-  if(titleEl){
-    titleEl.textContent = isStartOnly ? 'Start Date güncelle'
-      : isDueOnly ? 'Due Date güncelle'
-      : 'Tarihleri güncelle';
-  }
-
-  modal.classList.remove('hidden');
-
-  // focus
-  setTimeout(() => {
-    if(isStartOnly) $('edit_start')?.focus();
-    else if(isDueOnly) $('edit_due')?.focus();
-  }, 0);
-
-  $('cancel_dates').onclick = () => modal.classList.add('hidden');
-
-  $('save_dates').onclick = async () => {
-    // IMPORTANT:
-    // Backend treats null as "remove field". So even in single-field mode,
-    // we always send the current other value to avoid accidental removals.
-    const start = $('edit_start').value;
-    const due = $('edit_due').value;
-    $('dates_status').textContent = 'kaydediliyor...';
-    let res;
-    try{
-      res = await fetch(`/api/workitems/${wi.id}/dates`,{
-        method:'PATCH',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ startDate: start || null, dueDate: due || null })
-      });
-    }catch{
-      $('dates_status').textContent = 'API erişilemedi.';
-      return;
-    }
-    if(!res.ok){
-      const err = await res.text().catch(()=>null);
-      $('dates_status').textContent = `hata: ${res.status}` + (err ? ` | ${err}` : '');
-      return;
-    }
-    $('dates_status').textContent = 'ok';
-    modal.classList.add('hidden');
-    // refresh detail + board
-    await load();
-    await openDetail(wi.id);
-  };
 }
 
 function setActiveTab(tab){
@@ -1613,23 +1453,6 @@ async function loadAssignableItems(){
 }
 
 $('refresh').addEventListener('click', load);
-
-// Inline date edit from board table (click on Start/Due cells)
-const tbl = $('tbl');
-if(tbl){
-  tbl.addEventListener('click', (e) => {
-    const t = e.target;
-    const btn = t && t.closest ? t.closest('button.dateBtn') : null;
-    if(!btn) return;
-
-    e.preventDefault();
-    const id = Number(btn.dataset.id);
-    const field = (btn.dataset.field || 'both');
-    const wi = boardItems.find(x => Number(x.id) === id);
-    if(!wi) return;
-    openDatesModal(wi, field);
-  });
-}
 $('close').addEventListener('click', () => $('detail').classList.add('hidden'));
 $('sendFb').addEventListener('click', sendFeedback);
 
@@ -1769,7 +1592,15 @@ function initPerfView(){
 
   if(mSel){
     mSel.innerHTML = '';
+    // All months
+    {
+      const opAll = document.createElement('option');
+      opAll.value = '0';
+      opAll.textContent = 'Tümü';
+      mSel.appendChild(opAll);
+    }
     for(let m=1; m<=12; m++){
+      const op = document.createElement('option');
       const op = document.createElement('option');
       op.value = String(m);
       op.textContent = monthNameTr(m);
@@ -2747,9 +2578,9 @@ async function createNewAssignItem(){
     }
 
     const created = await res.json();
-    const createdId = created?.id ?? created?.Id ?? created?.workItemId ?? created?.WorkItemId;
+    // optimistic insert at top of its column (new items should appear immediately)
     titleInp.value = '';
-    if(status) status.textContent = createdId ? `Oluşturuldu: #${createdId}` : 'Oluşturuldu.';
+    if(status) status.textContent = `Oluşturuldu: #${created.id}`;
 
     // reload to ensure all fields/state are in sync
     await loadAssignableItems();

@@ -58,7 +58,6 @@
               <th>State</th>
               <th>Effort</th>
               <th>Start</th>
-              <th>In Progress</th>
               <th>Due</th>
               <th>Done</th>
               <th>ExpDays</th>
@@ -164,6 +163,21 @@
               </div>
             </div>
 
+            <div class="newItemBar" id="assign_new_bar">
+              <span class="newItemPlus">+</span>
+              <select id="assign_new_type" class="newItemType">
+                <option value="Product Backlog Item" selected>Backlog</option>
+                <option value="Bug">Bug</option>
+              </select>
+              <select id="assign_new_priority" class="newItemPriority" title="Priority">
+                <option value="1">P1</option>
+                <option value="2">P2</option>
+                <option value="3">P3</option>
+                <option value="4" selected>P4</option>
+              </select>
+              <input id="assign_new_title" class="newItemTitle" placeholder="Başlık yaz..." />
+              <button id="assign_new_add" type="button" class="primary newItemAdd">Add to top</button>
+            </div>
             <button id="assign_refresh" type="button">Yenile</button>
             <span id="assign_status"></span>
           </div>
@@ -393,35 +407,8 @@
             </div>
             <div class="hint">Not: Bu ekran sadece okuma + not (pool) + yorum amaçlı.</div>
           </div>
-
-          <div class="card">
-            <div class="cardTitle rowTitle">
-              <span>Tarihler</span>
-              <button id="d_dates_edit" type="button" class="miniBtn" title="Start/Due güncelle">📅</button>
-            </div>
-            <div id="d_dates" class="hint">Start: - | In Progress: - | Due: -</div>
-            <div class="hint">Not: Due boşsa metrikler ForecastDue'yu baz alır.</div>
-          </div>
         </div>
       </section>
-
-      <!-- Dates modal -->
-      <div id="dateModal" class="modal hidden">
-        <div class="modalBox">
-          <div class="modalHeader" id="dateModalTitle">Tarihleri güncelle</div>
-          <label class="modalRow" id="row_start">Start Date
-            <input id="edit_start" type="date" />
-          </label>
-          <label class="modalRow" id="row_due">Due Date
-            <input id="edit_due" type="date" />
-          </label>
-          <div class="modalActions">
-            <button id="save_dates" type="button" class="miniBtn">Kaydet</button>
-            <button id="cancel_dates" type="button" class="tabBtn">Vazgeç</button>
-          </div>
-          <div id="dates_status" class="hint"></div>
-        </div>
-      </div>
 
 </main>
 
