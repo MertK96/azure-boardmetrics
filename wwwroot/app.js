@@ -1814,13 +1814,28 @@ function renderPerfSummary(){
 
 function getPerfPeriod(){
   const year = parseInt(($('perf_year')?.value || ''), 10) || new Date().getFullYear();
-  const month = parseInt(($('perf_month')?.value || ''), 10) || (new Date().getMonth()+1);
+  const rawMonth = String($('perf_month')?.value ?? '').trim();
+  // month=0 => "Tümü" (yılın tamamı). parseInt("0") => 0, fakat "||" ile fallback'e düşmemeli.
+  let month;
+  if(rawMonth === '0'){
+    month = 0;
+  } else {
+    const parsed = parseInt(rawMonth, 10);
+    month = Number.isFinite(parsed) && parsed > 0 ? parsed : (new Date().getMonth()+1);
+  }
   const week = ($('perf_week')?.value || 'all');
   return { year, month, week };
 }
 
 function getPerfRange(){
   const { year, month, week } = getPerfPeriod();
+  // month=0 => full year
+  if(month <= 0){
+    const start = new Date(year, 0, 1);
+    const endExclusive = new Date(year + 1, 0, 1);
+    return { start, endExclusive };
+  }
+
   const daysInMonth = new Date(year, month, 0).getDate();
   const w = String(week || 'all').trim().toLowerCase();
   const isAll = (w === '' || w === 'all' || w === 'hepsi');

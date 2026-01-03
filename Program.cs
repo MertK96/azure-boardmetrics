@@ -852,20 +852,11 @@ ORDER BY [Microsoft.VSTS.Common.ClosedDate] ASC, [Microsoft.VSTS.Common.Resolved
         try { tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Istanbul"); }
         catch { tz = TimeZoneInfo.Utc; }
 
+        // "Effort" metriği: yalnızca Azure DevOps'un Effort alanı.
+        // StoryPoints/CompletedWork/OriginalEstimate farklı anlamlara gelebilir ve toplamı şişirebilir.
         static double? PickEffort(AzdoWorkItem wi)
         {
-            foreach (var f in new[]
-            {
-                "Microsoft.VSTS.Scheduling.Effort",
-                "Microsoft.VSTS.Scheduling.StoryPoints",
-                "Microsoft.VSTS.Scheduling.CompletedWork",
-                "Microsoft.VSTS.Scheduling.OriginalEstimate"
-            })
-            {
-                var v = wi.GetDouble(f);
-                if (v is not null) return v;
-            }
-            return null;
+            return wi.GetDouble("Microsoft.VSTS.Scheduling.Effort");
         }
 
         static DateTimeOffset? PickDate(AzdoWorkItem wi, params string[] fields)
