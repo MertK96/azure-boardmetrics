@@ -1710,7 +1710,7 @@ function initPerfView(){
   if(ySel){
     ySel.innerHTML = '';
     for(let y = curY-4; y <= curY+1; y++){
-      const op = document.createElement('option');
+      var op = document.createElement('option');
       op.value = String(y);
       op.textContent = String(y);
       if(y === curY) op.selected = true;
@@ -1721,7 +1721,7 @@ function initPerfView(){
   if(mSel){
     mSel.innerHTML = '';
     for(let m=1; m<=12; m++){
-      const op = document.createElement('option');
+      var op = document.createElement('option');
       op.value = String(m);
       op.textContent = monthNameTr(m);
       if(m === (now.getMonth()+1)) op.selected = true;
@@ -1740,7 +1740,7 @@ function initPerfView(){
       { v: '5', t: '5. hafta' },
     ];
     for(const o of ops){
-      const op = document.createElement('option');
+      var op = document.createElement('option');
       op.value = o.v;
       op.textContent = o.t;
       if(o.v === 'all') op.selected = true;
@@ -1823,7 +1823,7 @@ function renderPerfUsersSelect(){
   for(const u of users){
     const key = (u.uniqueName || u.displayName || '').trim();
     if(!key) continue;
-    const op = document.createElement('option');
+    var op = document.createElement('option');
     op.value = key;
     op.textContent = perfUserLabel(u);
     if(key === perfActiveUser) op.selected = true;
