@@ -205,6 +205,64 @@ async function updateDates(id, payload){
   return true;
 }
 
+// ---------------- Date dialog (Starter/Due) ----------------
+const dateDialog = document.getElementById('dateDialog');
+const dateDialogTitle = document.getElementById('dateDialogTitle');
+const dateDialogLabelText = document.getElementById('dateDialogLabelText');
+const dateDialogInput = document.getElementById('dateDialogInput');
+const dateDialogCancel = document.getElementById('dateDialogCancel');
+const dateDialogForm = document.getElementById('dateDialogForm');
+
+function showDateDialog(label, currentYmd){
+  // returns Promise<string|null> where string is YYYY-MM-DD
+  return new Promise((resolve)=>{
+    // Fallback if <dialog> not supported
+    if(!dateDialog || typeof dateDialog.showModal !== 'function'){
+      const input = prompt(`${label} (YYYY-MM-DD). Boş bırakırsan değiştirmez.`, currentYmd || '');
+      if(input === null) return resolve(null);
+      const v = String(input).trim();
+      return resolve(v === '' ? null : v);
+    }
+
+    dateDialogTitle.textContent = label;
+    dateDialogLabelText.textContent = label;
+    dateDialogInput.value = currentYmd || '';
+
+    const cleanup = ()=>{
+      dateDialogCancel.removeEventListener('click', onCancel);
+      dateDialogForm.removeEventListener('submit', onSubmit);
+      dateDialog.removeEventListener('close', onClose);
+    };
+
+    const onCancel = ()=>{
+      cleanup();
+      dateDialog.close('cancel');
+      resolve(null);
+    };
+
+    const onSubmit = (e)=>{
+      e.preventDefault();
+      const v = String(dateDialogInput.value || '').trim();
+      cleanup();
+      dateDialog.close('ok');
+      resolve(v === '' ? null : v);
+    };
+
+    const onClose = ()=>{
+      // user pressed ESC or clicked backdrop
+      cleanup();
+      resolve(null);
+    };
+
+    dateDialogCancel.addEventListener('click', onCancel);
+    dateDialogForm.addEventListener('submit', onSubmit);
+    dateDialog.addEventListener('close', onClose, { once: true });
+    dateDialog.showModal();
+    // Focus input for quick entry
+    setTimeout(()=>dateDialogInput?.focus?.(), 0);
+  });
+}
+
 function editableDateCell(wi, kind, options){
   // kind: 'starter' | 'due'
   const td = document.createElement('td');
@@ -228,10 +286,8 @@ function editableDateCell(wi, kind, options){
 
     const label = kind === 'starter' ? 'Starter Date' : 'Due Date';
     const cur = fmtDate(current);
-    const input = prompt(`${label} (YYYY-MM-DD). Boş bırakırsan değiştirmez.`, cur || '');
-    if(input === null) return;
-    const v = String(input).trim();
-    if(v === '') return; // no change
+    const v = await showDateDialog(label, cur || '');
+    if(v == null) return; // cancel / no change
 
     // basic validation
     if(!/^\d{4}-\d{2}-\d{2}$/.test(v)){
