@@ -181,132 +181,6 @@ function cell(txt, cls){
   return td;
 }
 
-function isPbiType(workItemType){
-  const t = String(workItemType || '').trim().toLowerCase();
-  return t === 'product backlog item' || t === 'pbi' || t === 'user story';
-}
-
-function isBugType(workItemType){
-  const t = String(workItemType || '').trim().toLowerCase();
-  return t === 'bug';
-}
-
-async function updateDates(id, payload){
-  const res = await fetch(`/api/workitems/${id}/dates`, {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(payload)
-  });
-  if(!res.ok){
-    const err = await res.json().catch(()=>({}));
-    alert(err.message || 'Tarih güncelleme hatası');
-    return false;
-  }
-  return true;
-}
-
-// ---------------- Date dialog (Starter/Due) ----------------
-const dateDialog = document.getElementById('dateDialog');
-const dateDialogTitle = document.getElementById('dateDialogTitle');
-const dateDialogLabelText = document.getElementById('dateDialogLabelText');
-const dateDialogInput = document.getElementById('dateDialogInput');
-const dateDialogCancel = document.getElementById('dateDialogCancel');
-const dateDialogForm = document.getElementById('dateDialogForm');
-
-function showDateDialog(label, currentYmd){
-  // returns Promise<string|null> where string is YYYY-MM-DD
-  return new Promise((resolve)=>{
-    // Fallback if <dialog> not supported
-    if(!dateDialog || typeof dateDialog.showModal !== 'function'){
-      const input = prompt(`${label} (YYYY-MM-DD). Boş bırakırsan değiştirmez.`, currentYmd || '');
-      if(input === null) return resolve(null);
-      const v = String(input).trim();
-      return resolve(v === '' ? null : v);
-    }
-
-    dateDialogTitle.textContent = label;
-    dateDialogLabelText.textContent = label;
-    dateDialogInput.value = currentYmd || '';
-
-    const cleanup = ()=>{
-      dateDialogCancel.removeEventListener('click', onCancel);
-      dateDialogForm.removeEventListener('submit', onSubmit);
-      dateDialog.removeEventListener('close', onClose);
-    };
-
-    const onCancel = ()=>{
-      cleanup();
-      dateDialog.close('cancel');
-      resolve(null);
-    };
-
-    const onSubmit = (e)=>{
-      e.preventDefault();
-      const v = String(dateDialogInput.value || '').trim();
-      cleanup();
-      dateDialog.close('ok');
-      resolve(v === '' ? null : v);
-    };
-
-    const onClose = ()=>{
-      // user pressed ESC or clicked backdrop
-      cleanup();
-      resolve(null);
-    };
-
-    dateDialogCancel.addEventListener('click', onCancel);
-    dateDialogForm.addEventListener('submit', onSubmit);
-    dateDialog.addEventListener('close', onClose, { once: true });
-    dateDialog.showModal();
-    // Focus input for quick entry
-    setTimeout(()=>dateDialogInput?.focus?.(), 0);
-  });
-}
-
-function editableDateCell(wi, kind, options){
-  // kind: 'starter' | 'due'
-  const td = document.createElement('td');
-  const cls = (options && options.cls) ? options.cls : '';
-  if(cls) td.className = cls;
-
-  const current = kind === 'starter' ? wi.starterDate : wi.dueDate;
-  td.textContent = fmtDate(current);
-
-  const disabled = (kind === 'starter') && isBugType(wi.workItemType);
-  if(disabled){
-    td.title = 'Bug için Starter Date yok';
-    return td;
-  }
-
-  td.classList.add('clickable');
-  td.title = 'Tıklayıp güncelle'
-  td.addEventListener('click', async (e)=>{
-    e.preventDefault();
-    e.stopPropagation();
-
-    const label = kind === 'starter' ? 'Starter Date' : 'Due Date';
-    const cur = fmtDate(current);
-    const v = await showDateDialog(label, cur || '');
-    if(v == null) return; // cancel / no change
-
-    // basic validation
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(v)){
-      alert('Format: YYYY-MM-DD');
-      return;
-    }
-
-    const iso = v + 'T00:00:00Z';
-    const payload = kind === 'starter' ? { starterDate: iso } : { dueDate: iso };
-    const ok = await updateDates(wi.id, payload);
-    if(ok){
-      await load();
-      if(currentId === wi.id) await openDetail(wi.id);
-    }
-  });
-
-  return td;
-}
-
 function idCell(wi){
   const td = document.createElement('td');
   const a = document.createElement('a');
@@ -612,13 +486,11 @@ async function load(){
     tr.appendChild(titleCell(wi));
     tr.appendChild(cell(wi.assignedToUniqueName ?? wi.assignedToDisplayName ?? ''));
     tr.appendChild(cell(wi.state));
-    tr.appendChild(cell(wi.workItemType ?? ''));
     tr.appendChild(cell(wi.effort ?? ''));
-    tr.appendChild(editableDateCell(wi, 'starter'));
     tr.appendChild(cell(fmtDate(wi.startDate)));
 
-    // Due cell (editable)
-    tr.appendChild(editableDateCell(wi, 'due', { cls: isCommitOver ? 'cellCommitOver' : '' }));
+    // Due cell
+    tr.appendChild(cell(fmtDate(wi.dueDate), isCommitOver ? 'cellCommitOver' : ''));
 
     tr.appendChild(cell(fmtDate(wi.doneDate)));
     tr.appendChild(cell(wi.expectedDays ?? ''));
@@ -1720,7 +1592,15 @@ function initPerfView(){
 
   if(mSel){
     mSel.innerHTML = '';
+    // All months
+    {
+      const opAll = document.createElement('option');
+      opAll.value = '0';
+      opAll.textContent = 'Tümü';
+      mSel.appendChild(opAll);
+    }
     for(let m=1; m<=12; m++){
+      var op = document.createElement('option');
       var op = document.createElement('option');
       op.value = String(m);
       op.textContent = monthNameTr(m);
@@ -1934,13 +1814,28 @@ function renderPerfSummary(){
 
 function getPerfPeriod(){
   const year = parseInt(($('perf_year')?.value || ''), 10) || new Date().getFullYear();
-  const month = parseInt(($('perf_month')?.value || ''), 10) || (new Date().getMonth()+1);
+  const rawMonth = String($('perf_month')?.value ?? '').trim();
+  // month=0 => "Tümü" (yılın tamamı). parseInt("0") => 0, fakat "||" ile fallback'e düşmemeli.
+  let month;
+  if(rawMonth === '0'){
+    month = 0;
+  } else {
+    const parsed = parseInt(rawMonth, 10);
+    month = Number.isFinite(parsed) && parsed > 0 ? parsed : (new Date().getMonth()+1);
+  }
   const week = ($('perf_week')?.value || 'all');
   return { year, month, week };
 }
 
 function getPerfRange(){
   const { year, month, week } = getPerfPeriod();
+  // month=0 => full year
+  if(month <= 0){
+    const start = new Date(year, 0, 1);
+    const endExclusive = new Date(year + 1, 0, 1);
+    return { start, endExclusive };
+  }
+
   const daysInMonth = new Date(year, month, 0).getDate();
   const w = String(week || 'all').trim().toLowerCase();
   const isAll = (w === '' || w === 'all' || w === 'hepsi');

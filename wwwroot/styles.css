@@ -90,19 +90,6 @@ tr.commitOver:hover{background:#321616}
 td.cellCommitOver{background:#3a1616}
 td.cellForecastOver{background:#2a2116}
 
-td.clickable{cursor:pointer;text-decoration:underline}
-
-/* Date picker dialog (Starter/Due) */
-.dateDialog{border:none;border-radius:12px;padding:0;background:#121826;color:#e6eef6;min-width:340px;box-shadow:0 12px 40px rgba(0,0,0,.45)}
-.dateDialog::backdrop{background:rgba(0,0,0,.55)}
-.dateDialogForm{display:flex;flex-direction:column;gap:12px;padding:16px}
-.dateDialogTitle{font-weight:700;font-size:16px}
-.dateDialogLabel{display:flex;flex-direction:column;gap:6px;font-size:13px;color:#c7d2e0}
-.dateDialogLabel input{padding:10px 12px;border-radius:10px;border:1px solid #263143;background:#0c0f14;color:#e6eef6;font-size:14px}
-.dateDialogActions{display:flex;justify-content:flex-end;gap:10px;margin-top:4px}
-.dateDialogActions .btn{padding:9px 12px;border-radius:10px;border:1px solid #263143;background:#0c0f14;color:#e6eef6}
-.dateDialogActions .btn.primary{background:#1d4ed8;border-color:#1d4ed8}
-
 
 .build{margin-left:8px;font-size:12px;color:#6ea8ff;opacity:.9}
 
