@@ -545,7 +545,7 @@ if (string.IsNullOrWhiteSpace(iterationPath))
             return;
         }
 
-        await PostWorkItemsOrderAsync(
+        await PatchWorkItemsOrderAsync(
             ids: new[] { workItemId },
             iterationPath: "",
             nextId: nextId.Value,
@@ -555,7 +555,7 @@ if (string.IsNullOrWhiteSpace(iterationPath))
         );
     }
 
-    public async Task PostWorkItemsOrderAsync(int[] ids, string iterationPath, int nextId, int previousId, int parentId, CancellationToken ct)
+    public async Task PatchWorkItemsOrderAsync(int[] ids, string iterationPath, int nextId, int previousId, int parentId, CancellationToken ct)
     {
         var project = (_opt.Project ?? "").Trim();
         if (string.IsNullOrWhiteSpace(project))
@@ -576,7 +576,12 @@ if (string.IsNullOrWhiteSpace(iterationPath))
             parentId = parentId
         });
 
-        using var res = await _http.PostAsync(path, new StringContent(payload, Encoding.UTF8, "application/json"), ct);
+        using var req = new HttpRequestMessage(HttpMethod.Patch, path)
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json")
+        };
+
+        using var res = await _http.SendAsync(req, ct);
         var body = await res.Content.ReadAsStringAsync(ct);
         if (!res.IsSuccessStatusCode)
             throw new Exception($"workitemsorder failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");

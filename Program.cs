@@ -584,7 +584,28 @@ app.MapPost("/api/workitems", async (AzdoClient az, CreateWorkItemRequest req, C
         // Default behavior here: AddToTop=true unless explicitly false.
         var addToTop = req.AddToTop is null ? true : req.AddToTop.Value;
         if (addToTop)
-            await az.MoveWorkItemToTopAsync(created.Id, pri, ct);
+        {
+            try
+            {
+                await az.MoveWorkItemToTopAsync(created.Id, pri, ct);
+            }
+            catch (Exception ex)
+            {
+                // If the PAT/user can't call WorkitemsOrder (typically 401/403), don't fail creation.
+                var msg = ex.Message ?? "";
+                if (msg.Contains("workitemsorder failed", StringComparison.OrdinalIgnoreCase) &&
+                    (msg.Contains(" 401 ", StringComparison.OrdinalIgnoreCase) || msg.Contains(" 403 ", StringComparison.OrdinalIgnoreCase) ||
+                     msg.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase) || msg.Contains("Forbidden", StringComparison.OrdinalIgnoreCase)))
+                {
+                    app.Logger.LogWarning(ex, "WorkitemsOrder failed; skipping reorder.");
+                }
+                else
+                {
+                    throw;
+                }
+            }
+        }
+
 
         return Results.Ok(new { ok = true, id = created.Id });
     }
