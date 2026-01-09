@@ -90,7 +90,15 @@ public static class AssignmentMoveEndpoints
                         extraFields: new[] { "Microsoft.VSTS.Common.Priority", "System.State" }))
                         .FirstOrDefault();
 
-                    var currentPriority = wi?.GetInt("Microsoft.VSTS.Common.Priority");
+                    int? currentPriority = null;
+                    if (wi?.Fields != null && wi.Fields.TryGetValue("Microsoft.VSTS.Common.Priority", out var cp) && cp != null)
+                    {
+                        // Azure DevOps can return numbers as int/long/double or as string depending on field.
+                        if (cp is int i) currentPriority = i;
+                        else if (cp is long l) currentPriority = (int)l;
+                        else if (cp is double d) currentPriority = (int)d;
+                        else if (int.TryParse(cp.ToString(), out var parsed)) currentPriority = parsed;
+                    }
                     var currentState = wi?.Fields.TryGetValue("System.State", out var cs) == true ? cs?.ToString() : null;
 
                     var priorityOk = currentPriority == desiredPriority;
