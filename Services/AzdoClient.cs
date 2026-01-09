@@ -103,6 +103,39 @@ public class AzdoClient
 
     public AzdoOptions Options => _opt;
 
+    /// <summary>
+    /// Returns the smallest StackRank among items in the "New" lane.
+    /// We use this to place newly created items to the top by setting StackRank below the current minimum.
+    /// </summary>
+    public async Task<double?> GetMinNewLaneStackRankAsync(CancellationToken ct)
+    {
+        static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
+
+        var projRaw = (_opt.Project ?? "").Trim();
+        var proj = EscapeWiql(projRaw);
+        var projectClause = string.IsNullOrWhiteSpace(projRaw)
+            ? ""
+            : $"    [System.TeamProject] = '{proj}'\n    AND ";
+
+        // Ask for the smallest StackRank first.
+        var wiql = $@"SELECT [System.Id]
+FROM WorkItems
+WHERE
+{projectClause}    [System.State] IN ('New','Yeni')
+    AND [System.WorkItemType] IN ('User Story','Bug','Product Backlog Item')
+    AND [System.State] <> 'Removed'
+ORDER BY [Microsoft.VSTS.Common.StackRank] ASC";
+
+        var ids = await QueryWorkItemIdsByWiqlAsync(wiql, ct);
+        var first = ids.FirstOrDefault();
+        if (first <= 0) return null;
+
+        var wi = (await GetWorkItemsBatchAsync(new[] { first }, ct, extraFields: new[] { "Microsoft.VSTS.Common.StackRank" }))
+            .FirstOrDefault();
+
+        return wi?.GetDouble("Microsoft.VSTS.Common.StackRank");
+    }
+
     public async Task<List<int>> QueryWorkItemIdsAsync(DateTimeOffset changedSinceUtc, CancellationToken ct)
     {
         // WIQL "date precision" istiyor -> SADECE tarih (YYYY-MM-DD)
@@ -452,7 +485,7 @@ public async Task UpdateWorkItemDescriptionAsync(int id, string descriptionHtml,
         throw new Exception("Attachment upload succeeded but response did not include url.");
     }
 
-public async Task<AzdoWorkItem> CreateWorkItemAsync(string workItemType, string title, string descriptionHtml, int priority, CancellationToken ct)
+public async Task<AzdoWorkItem> CreateWorkItemAsync(string workItemType, string title, string descriptionHtml, int priority, bool addToTop, CancellationToken ct)
 {
     var project = (_opt.Project ?? "").Trim();
     if (string.IsNullOrWhiteSpace(project))
@@ -518,9 +551,10 @@ if (string.IsNullOrWhiteSpace(iterationPath))
         return AzdoWorkItem.FromJson(root);
     }
 
+    AzdoWorkItem created;
     try
     {
-        return await TryCreate(patchWithStateAndPriority, ct);
+        created = await TryCreate(patchWithStateAndPriority, ct);
     }
     catch (Exception ex)
     {
@@ -528,11 +562,35 @@ if (string.IsNullOrWhiteSpace(iterationPath))
         // Retry without priority/state if process rejects
         if (msg.Contains("priority") || msg.Contains("microsoft.vsts.common.priority") || msg.Contains("state"))
         {
-            try { return await TryCreate(patchWithState, ct); } catch { return await TryCreate(patchMinimal, ct); }
+            try { created = await TryCreate(patchWithState, ct); } catch { created = await TryCreate(patchMinimal, ct); }
+            goto afterCreate;
         }
         // fallback
-        return await TryCreate(patchMinimal, ct);
+        created = await TryCreate(patchMinimal, ct);
+        goto afterCreate;
     }
+
+afterCreate:
+    // By default Azure Boards tends to place newly created items at the bottom of the column.
+    // If requested, move it to the top by setting StackRank below the current minimum.
+    if (addToTop)
+    {
+        var min = await GetMinNewLaneStackRankAsync(ct);
+        // If we couldn't discover a min, just use a small constant.
+        var desired = (min ?? 1000.0) - 1000.0;
+
+        try
+        {
+            await UpdateWorkItemFieldsAsync(created.Id,
+                new Dictionary<string, object?> { ["Microsoft.VSTS.Common.StackRank"] = desired }, ct);
+        }
+        catch
+        {
+            // Don't fail the whole create if ordering fails.
+        }
+    }
+
+    return created;
 }
 
 
