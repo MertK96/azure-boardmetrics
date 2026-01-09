@@ -535,24 +535,44 @@ if (string.IsNullOrWhiteSpace(iterationPath))
     }
 }
 
-    public async Task MoveWorkItemToTopAsync(int workItemId, int priority, CancellationToken ct)
+    public async Task MoveWorkItemToTopAsync(int workItemId, CancellationToken ct)
     {
-        // Azure Boards uses /_apis/work/workitemsorder with previousId=-1 to move an item to the top.
-        var nextId = await GetTopWorkItemIdByPriorityAsync(priority, excludeId: workItemId, ct);
-        if (nextId is null)
-        {
-            // nothing to order against
-            return;
-        }
+        // Azure Boards UI “Add to top” behavior:
+        // 1) create work item
+        // 2) PATCH /_apis/work/workitemsorder with previousId=-1 and nextId=<current top item>
+        //
+        // IMPORTANT: nextId must be a work item that belongs to the SAME backlog/parent context.
+        // Using a WIQL query (e.g., filtering by Priority) can easily pick an item outside of the
+        // immediate parent, causing TF400486 (BacklogChangedException).
 
-        await PatchWorkItemsOrderAsync(
-            ids: new[] { workItemId },
-            iterationPath: "",
-            nextId: nextId.Value,
-            previousId: -1,
-            parentId: 0,
-            ct: ct
-        );
+        // Best-effort: look up the top item in the REQUIREMENT backlog for the configured team.
+        var nextId = await GetTopRequirementBacklogWorkItemIdAsync(excludeId: workItemId, ct);
+        if (nextId is null)
+            return; // nothing to order against
+
+        // Retry once on TF400486 since the backlog can be changing concurrently.
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            try
+            {
+                await PatchWorkItemsOrderAsync(
+                    ids: new[] { workItemId },
+                    iterationPath: "",
+                    nextId: nextId.Value,
+                    previousId: -1,
+                    parentId: 0,
+                    ct: ct
+                );
+                return;
+            }
+            catch (Exception ex) when (attempt == 1 && ex.Message.Contains("TF400486", StringComparison.OrdinalIgnoreCase))
+            {
+                // Refresh top item and retry.
+                await Task.Delay(250, ct);
+                nextId = await GetTopRequirementBacklogWorkItemIdAsync(excludeId: workItemId, ct);
+                if (nextId is null) return;
+            }
+        }
     }
 
     public async Task PatchWorkItemsOrderAsync(int[] ids, string iterationPath, int nextId, int previousId, int parentId, CancellationToken ct)
@@ -587,40 +607,72 @@ if (string.IsNullOrWhiteSpace(iterationPath))
             throw new Exception($"workitemsorder failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
     }
 
-    private async Task<int?> GetTopWorkItemIdByPriorityAsync(int priority, int excludeId, CancellationToken ct)
+    private async Task<int?> GetTopRequirementBacklogWorkItemIdAsync(int excludeId, CancellationToken ct)
     {
-        // Returns the current top item id for the given priority (StackRank ASC), excluding excludeId.
-        var proj = EscapeWiql(_opt.Project);
-        var p = Math.Clamp(priority, 1, 4);
+        // Uses the Work Backlogs APIs to find the "requirement" backlog (Stories/Bugs etc.)
+        // and returns the FIRST item id (top of backlog), excluding excludeId.
+        //
+        // Docs:
+        // - List backlog levels: GET .../{project}/{team}/_apis/work/backlogs?api-version=7.1
+        // - Get backlog work items: GET .../{project}/{team}/_apis/work/backlogs/{backlogId}/workItems?api-version=7.1
+        // - Reorder backlog: PATCH .../{project}/{team}/_apis/work/workitemsorder?api-version=7.1
 
-        var wiql = $@"
-SELECT [System.Id]
-FROM WorkItems
-WHERE
-    [System.TeamProject] = '{proj}'
-    AND [System.State] <> 'Removed'
-    AND [Microsoft.VSTS.Common.Priority] = {p}
-ORDER BY [Microsoft.VSTS.Common.StackRank] ASC";
-
-        var path = $"{_opt.Project}/_apis/wit/wiql?api-version=7.1";
-        var payload = JsonSerializer.Serialize(new { query = wiql });
-
-        using var res = await _http.PostAsync(path, new StringContent(payload, Encoding.UTF8, "application/json"), ct);
-        var body = await res.Content.ReadAsStringAsync(ct);
-        if (!res.IsSuccessStatusCode)
-            throw new Exception($"WIQL failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
-
-        using var doc = JsonDocument.Parse(body);
-        if (!doc.RootElement.TryGetProperty("workItems", out var arr) || arr.ValueKind != JsonValueKind.Array)
+        var project = (_opt.Project ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(project))
             return null;
 
-        foreach (var el in arr.EnumerateArray())
+        var team = (_opt.Team ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(team))
+            team = project; // fallback
+
+        // 1) List backlogs and choose the requirement one.
+        var listPath = $"{project}/{team}/_apis/work/backlogs?api-version=7.1";
+        using var listRes = await _http.GetAsync(listPath, ct);
+        var listBody = await listRes.Content.ReadAsStringAsync(ct);
+        if (!listRes.IsSuccessStatusCode)
+            throw new Exception($"Backlogs list failed. Status={(int)listRes.StatusCode} {listRes.StatusCode} Body: {listBody}");
+
+        using var listDoc = JsonDocument.Parse(listBody);
+        if (!listDoc.RootElement.TryGetProperty("value", out var backlogs) || backlogs.ValueKind != JsonValueKind.Array)
+            return null;
+
+        string? backlogId = null;
+        foreach (var b in backlogs.EnumerateArray())
         {
-            if (!el.TryGetProperty("id", out var idEl)) continue;
+            var type = b.TryGetProperty("type", out var t) ? t.GetString() : null;
+            var id = b.TryGetProperty("id", out var i) ? i.GetString() : null;
+            if (string.IsNullOrWhiteSpace(id)) continue;
+
+            if (string.Equals(type, "requirement", StringComparison.OrdinalIgnoreCase))
+            {
+                backlogId = id;
+                break;
+            }
+        }
+
+        // Fallback: many processes use Microsoft.RequirementCategory
+        backlogId ??= "Microsoft.RequirementCategory";
+
+        // 2) Get work items in that backlog level (already ordered).
+        var wiPath = $"{project}/{team}/_apis/work/backlogs/{Uri.EscapeDataString(backlogId)}/workItems?api-version=7.1";
+        using var wiRes = await _http.GetAsync(wiPath, ct);
+        var wiBody = await wiRes.Content.ReadAsStringAsync(ct);
+        if (!wiRes.IsSuccessStatusCode)
+            throw new Exception($"Backlog workItems failed. Status={(int)wiRes.StatusCode} {wiRes.StatusCode} Body: {wiBody}");
+
+        using var wiDoc = JsonDocument.Parse(wiBody);
+        if (!wiDoc.RootElement.TryGetProperty("workItems", out var items) || items.ValueKind != JsonValueKind.Array)
+            return null;
+
+        foreach (var link in items.EnumerateArray())
+        {
+            if (!link.TryGetProperty("target", out var target)) continue;
+            if (!target.TryGetProperty("id", out var idEl)) continue;
             var id = idEl.GetInt32();
             if (id == excludeId) continue;
             return id;
         }
+
         return null;
     }
 

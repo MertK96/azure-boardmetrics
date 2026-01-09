@@ -587,7 +587,7 @@ app.MapPost("/api/workitems", async (AzdoClient az, CreateWorkItemRequest req, C
         {
             try
             {
-                await az.MoveWorkItemToTopAsync(created.Id, pri, ct);
+                await az.MoveWorkItemToTopAsync(created.Id, ct);
             }
             catch (Exception ex)
             {
