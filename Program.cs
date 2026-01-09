@@ -578,11 +578,14 @@ app.MapPost("/api/workitems", async (AzdoClient az, CreateWorkItemRequest req, C
         var html = NormalizeHtmlFromInput(req.Description);
         var pri = req.Priority is null ? 4 : Math.Clamp(req.Priority.Value, 1, 4);
 
-        // Default behaviour: place newly created items to the top (same as Azure's "Add to top").
-        // If client explicitly sets AddToTop=false, we keep the default Azure behaviour.
-        var addToTop = req.AddToTop is null ? true : req.AddToTop.Value;
+        var created = await az.CreateWorkItemAsync(type, title, html, pri, ct);
 
-        var created = await az.CreateWorkItemAsync(type, title, html, pri, addToTop, ct);
+        // Azure Boards UI does: create -> workitemsorder(previousId=-1) to place at top.
+        // Default behavior here: AddToTop=true unless explicitly false.
+        var addToTop = req.AddToTop is null ? true : req.AddToTop.Value;
+        if (addToTop)
+            await az.MoveWorkItemToTopAsync(created.Id, pri, ct);
+
         return Results.Ok(new { ok = true, id = created.Id });
     }
     catch (Exception ex)
@@ -1570,7 +1573,4 @@ public sealed class CreateWorkItemRequest
     public string? Title { get; set; }
     public string? Description { get; set; } // plain text or html
     public int? Priority { get; set; } // 1..4
-
-    // null => default true (create on top)
-    public bool? AddToTop { get; set; }
 }

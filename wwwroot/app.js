@@ -2696,7 +2696,7 @@ async function createNewAssignItem(){
     const res = await fetch('/api/workitems', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workItemType, title, description: '', priority })
+      body: JSON.stringify({ workItemType, title, description: '', priority, addToTop: true })
     });
     if(!res.ok){
       const t = await res.text();

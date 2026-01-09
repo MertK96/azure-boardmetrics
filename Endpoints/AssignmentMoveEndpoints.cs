@@ -119,63 +119,6 @@ public static class AssignmentMoveEndpoints
                     return Results.Json(new { message = msg }, statusCode: 502);
                 }
             });
-
-        // Move/reorder a card to an absolute position inside a priority column.
-        // Position is 1-based. This is optional (UI can keep drag/drop), but allows a "position" input.
-        app.MapPatch("/api/assignments/{id:int}/position",
-            async (AzdoClient az, int id, MovePositionDto dto, CancellationToken ct) =>
-            {
-                var p = dto.Priority;
-                if (p < 1 || p > 4)
-                    return Results.BadRequest(new { message = "Priority 1-4 olmalı." });
-                if (dto.Position < 1)
-                    return Results.BadRequest(new { message = "Position 1'den küçük olamaz." });
-
-                // Fetch ids in this priority ordered by StackRank ASC.
-                var ids = await QueryPriorityIdsOrderedAsync(az, p, ct);
-                // Remove the moving id if present.
-                ids.Remove(id);
-
-                var idx = Math.Min(dto.Position - 1, ids.Count); // insert index (0..Count)
-                int? beforeId = idx > 0 ? ids[idx - 1] : null;
-                int? afterId = idx < ids.Count ? ids[idx] : null;
-
-                var newRank = await TryComputeStackRankAsync(az, beforeId, afterId, ct);
-                if (newRank is null)
-                    return Results.Ok(new { ok = true });
-
-                await az.UpdateWorkItemFieldsAsync(id, new Dictionary<string, object?>
-                {
-                    ["Microsoft.VSTS.Common.Priority"] = p,
-                    ["Microsoft.VSTS.Common.StackRank"] = newRank.Value
-                }, ct);
-
-                return Results.Ok(new { ok = true });
-            });
-    }
-
-    private static async Task<List<int>> QueryPriorityIdsOrderedAsync(AzdoClient az, int priority, CancellationToken ct)
-    {
-        static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
-
-        var projRaw = (az.Options.Project ?? "").Trim();
-        var proj = EscapeWiql(projRaw);
-        var projectClause = string.IsNullOrWhiteSpace(projRaw)
-            ? ""
-            : $"    [System.TeamProject] = '{proj}'\n    AND ";
-
-        // We include New + Approved because your board shows both (Stories/New + Approved Bugs/PBIs).
-        // Order by StackRank ASC => top first.
-        var wiql = $@"SELECT [System.Id]
-FROM WorkItems
-WHERE
-{projectClause}    [System.State] <> 'Removed'
-    AND [Microsoft.VSTS.Common.Priority] = {priority}
-    AND [System.WorkItemType] IN ('User Story','Bug','Product Backlog Item')
-ORDER BY [Microsoft.VSTS.Common.StackRank] ASC";
-
-        var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);
-        return ids;
     }
 
     private static async Task<double?> TryComputeStackRankAsync(AzdoClient az, int? beforeId, int? afterId, CancellationToken ct)

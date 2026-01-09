@@ -103,39 +103,6 @@ public class AzdoClient
 
     public AzdoOptions Options => _opt;
 
-    /// <summary>
-    /// Returns the smallest StackRank among items in the "New" lane.
-    /// We use this to place newly created items to the top by setting StackRank below the current minimum.
-    /// </summary>
-    public async Task<double?> GetMinNewLaneStackRankAsync(CancellationToken ct)
-    {
-        static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
-
-        var projRaw = (_opt.Project ?? "").Trim();
-        var proj = EscapeWiql(projRaw);
-        var projectClause = string.IsNullOrWhiteSpace(projRaw)
-            ? ""
-            : $"    [System.TeamProject] = '{proj}'\n    AND ";
-
-        // Ask for the smallest StackRank first.
-        var wiql = $@"SELECT [System.Id]
-FROM WorkItems
-WHERE
-{projectClause}    [System.State] IN ('New','Yeni')
-    AND [System.WorkItemType] IN ('User Story','Bug','Product Backlog Item')
-    AND [System.State] <> 'Removed'
-ORDER BY [Microsoft.VSTS.Common.StackRank] ASC";
-
-        var ids = await QueryWorkItemIdsByWiqlAsync(wiql, ct);
-        var first = ids.FirstOrDefault();
-        if (first <= 0) return null;
-
-        var wi = (await GetWorkItemsBatchAsync(new[] { first }, ct, extraFields: new[] { "Microsoft.VSTS.Common.StackRank" }))
-            .FirstOrDefault();
-
-        return wi?.GetDouble("Microsoft.VSTS.Common.StackRank");
-    }
-
     public async Task<List<int>> QueryWorkItemIdsAsync(DateTimeOffset changedSinceUtc, CancellationToken ct)
     {
         // WIQL "date precision" istiyor -> SADECE tarih (YYYY-MM-DD)
@@ -485,7 +452,7 @@ public async Task UpdateWorkItemDescriptionAsync(int id, string descriptionHtml,
         throw new Exception("Attachment upload succeeded but response did not include url.");
     }
 
-public async Task<AzdoWorkItem> CreateWorkItemAsync(string workItemType, string title, string descriptionHtml, int priority, bool addToTop, CancellationToken ct)
+public async Task<AzdoWorkItem> CreateWorkItemAsync(string workItemType, string title, string descriptionHtml, int priority, CancellationToken ct)
 {
     var project = (_opt.Project ?? "").Trim();
     if (string.IsNullOrWhiteSpace(project))
@@ -551,10 +518,9 @@ if (string.IsNullOrWhiteSpace(iterationPath))
         return AzdoWorkItem.FromJson(root);
     }
 
-    AzdoWorkItem created;
     try
     {
-        created = await TryCreate(patchWithStateAndPriority, ct);
+        return await TryCreate(patchWithStateAndPriority, ct);
     }
     catch (Exception ex)
     {
@@ -562,36 +528,97 @@ if (string.IsNullOrWhiteSpace(iterationPath))
         // Retry without priority/state if process rejects
         if (msg.Contains("priority") || msg.Contains("microsoft.vsts.common.priority") || msg.Contains("state"))
         {
-            try { created = await TryCreate(patchWithState, ct); } catch { created = await TryCreate(patchMinimal, ct); }
-            goto afterCreate;
+            try { return await TryCreate(patchWithState, ct); } catch { return await TryCreate(patchMinimal, ct); }
         }
         // fallback
-        created = await TryCreate(patchMinimal, ct);
-        goto afterCreate;
+        return await TryCreate(patchMinimal, ct);
     }
-
-afterCreate:
-    // By default Azure Boards tends to place newly created items at the bottom of the column.
-    // If requested, move it to the top by setting StackRank below the current minimum.
-    if (addToTop)
-    {
-        var min = await GetMinNewLaneStackRankAsync(ct);
-        // If we couldn't discover a min, just use a small constant.
-        var desired = (min ?? 1000.0) - 1000.0;
-
-        try
-        {
-            await UpdateWorkItemFieldsAsync(created.Id,
-                new Dictionary<string, object?> { ["Microsoft.VSTS.Common.StackRank"] = desired }, ct);
-        }
-        catch
-        {
-            // Don't fail the whole create if ordering fails.
-        }
-    }
-
-    return created;
 }
+
+    public async Task MoveWorkItemToTopAsync(int workItemId, int priority, CancellationToken ct)
+    {
+        // Azure Boards uses /_apis/work/workitemsorder with previousId=-1 to move an item to the top.
+        var nextId = await GetTopWorkItemIdByPriorityAsync(priority, excludeId: workItemId, ct);
+        if (nextId is null)
+        {
+            // nothing to order against
+            return;
+        }
+
+        await PostWorkItemsOrderAsync(
+            ids: new[] { workItemId },
+            iterationPath: "",
+            nextId: nextId.Value,
+            previousId: -1,
+            parentId: 0,
+            ct: ct
+        );
+    }
+
+    public async Task PostWorkItemsOrderAsync(int[] ids, string iterationPath, int nextId, int previousId, int parentId, CancellationToken ct)
+    {
+        var project = (_opt.Project ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(project))
+            throw new Exception("Project boş. AZDO_PROJECT/appsettings üzerinden proje adı gerekli.");
+
+        var team = (_opt.Team ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(team))
+            team = project; // fallback
+
+        var path = $"{project}/{team}/_apis/work/workitemsorder?api-version=7.1-preview.1";
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            ids = ids,
+            iterationPath = iterationPath ?? "",
+            nextId = nextId,
+            previousId = previousId,
+            parentId = parentId
+        });
+
+        using var res = await _http.PostAsync(path, new StringContent(payload, Encoding.UTF8, "application/json"), ct);
+        var body = await res.Content.ReadAsStringAsync(ct);
+        if (!res.IsSuccessStatusCode)
+            throw new Exception($"workitemsorder failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
+    }
+
+    private async Task<int?> GetTopWorkItemIdByPriorityAsync(int priority, int excludeId, CancellationToken ct)
+    {
+        // Returns the current top item id for the given priority (StackRank ASC), excluding excludeId.
+        var proj = EscapeWiql(_opt.Project);
+        var p = Math.Clamp(priority, 1, 4);
+
+        var wiql = $@"
+SELECT [System.Id]
+FROM WorkItems
+WHERE
+    [System.TeamProject] = '{proj}'
+    AND [System.State] <> 'Removed'
+    AND [Microsoft.VSTS.Common.Priority] = {p}
+ORDER BY [Microsoft.VSTS.Common.StackRank] ASC";
+
+        var path = $"{_opt.Project}/_apis/wit/wiql?api-version=7.1";
+        var payload = JsonSerializer.Serialize(new { query = wiql });
+
+        using var res = await _http.PostAsync(path, new StringContent(payload, Encoding.UTF8, "application/json"), ct);
+        var body = await res.Content.ReadAsStringAsync(ct);
+        if (!res.IsSuccessStatusCode)
+            throw new Exception($"WIQL failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
+
+        using var doc = JsonDocument.Parse(body);
+        if (!doc.RootElement.TryGetProperty("workItems", out var arr) || arr.ValueKind != JsonValueKind.Array)
+            return null;
+
+        foreach (var el in arr.EnumerateArray())
+        {
+            if (!el.TryGetProperty("id", out var idEl)) continue;
+            var id = idEl.GetInt32();
+            if (id == excludeId) continue;
+            return id;
+        }
+        return null;
+    }
+
 
 
 public async Task UpdateWorkItemMoveAsync(int id, int priority, bool makeApproved, double? stackRank, CancellationToken ct)
