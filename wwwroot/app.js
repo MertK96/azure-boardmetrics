@@ -1103,7 +1103,7 @@ function createAssignCard(item){
   ].filter(Boolean).join(' ');
 
   div.className = `aCard ${cls} ${extraCls}`.trim();
-<<<<<<< HEAD
+
   div.dataset.id = String(item.id);
   div.draggable = true;
   div.addEventListener('dragstart', (e) => {
@@ -1114,12 +1114,12 @@ function createAssignCard(item){
   div.addEventListener('dragend', () => {
     div.classList.remove('dragging');
   });
-=======
+
   // drag & drop support (assign view)
   div.draggable = true;
   div.dataset.id = String(item.id);
   div.dataset.workItemType = String(item.workItemType || '');
->>>>>>> 058112d61b1283d28db5f40dbe24ce88c928c558
+
 
   const typeLabel = typeRaw;
   const title = (item.title || '').trim();

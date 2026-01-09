@@ -334,8 +334,8 @@ app.MapPatch("/api/assignments/{id:int}/assignee", async (int id, AzdoClient az,
     }
 });
 
-<<<<<<< HEAD
-app.MapPatch("/api/assignments/{id:int}/move", async (int id, AppDb db, AzdoClient az, MetricsService metrics, MoveAssignmentDto dto, CancellationToken ct) =>
+
+app.MapPatch("/api/assignments/{id:int}/move", async (int id, AppDbContext db, AzdoClient az, MetricsService metrics, MoveAssignmentDto dto, CancellationToken ct) =>
 {
     try
     {
@@ -396,9 +396,7 @@ app.MapPatch("/api/assignments/{id:int}/move", async (int id, AppDb db, AzdoClie
 });
 
 
-=======
-app.MapAssignmentMoveEndpoints();
->>>>>>> 058112d61b1283d28db5f40dbe24ce88c928c558
+
 
 // -------------------- Kişisel Bazlı Performans --------------------
 
