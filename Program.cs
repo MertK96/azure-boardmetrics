@@ -335,7 +335,7 @@ app.MapPatch("/api/assignments/{id:int}/assignee", async (int id, AzdoClient az,
 });
 
 
-app.MapPatch("/api/assignments/{id:int}/move", async (int id, AppDbContext db, AzdoClient az, MetricsService metrics, MoveAssignmentDto dto, CancellationToken ct) =>
+app.MapPatch("/api/assignments/{id:int}/move", async (int id, AppDbContext db, AzdoClient az, MetricsService metrics, AzdoBoardMetrics.Models.MoveAssignmentDto dto, CancellationToken ct) =>
 {
     try
     {
@@ -1367,7 +1367,6 @@ app.Run();
 
 // -------------------- DTOs --------------------
 public record AssigneePatchDto(string? AssigneeUniqueName);
-record MoveAssignmentDto(int Priority, bool MakeApproved, int? BeforeId, int? AfterId);
 public record FeedbackCreate(string? Note);
 public record CommentCreate(string? Text);
 public record ResolveDto(bool IsResolved);

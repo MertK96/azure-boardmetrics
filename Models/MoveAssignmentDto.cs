@@ -2,7 +2,7 @@ namespace AzdoBoardMetrics.Models;
 
 public sealed record MoveAssignmentDto(
     int Priority,
-    bool SetApproved = false,
+    bool MakeApproved = false,
     int? BeforeId = null,
     int? AfterId = null
 );

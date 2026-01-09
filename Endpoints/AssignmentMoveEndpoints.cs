@@ -23,7 +23,7 @@ public static class AssignmentMoveEndpoints
                         ["Microsoft.VSTS.Common.Priority"] = p
                     };
 
-                    if (dto.SetApproved)
+				if (dto.MakeApproved)
                         fields["System.State"] = "Approved";
 
                     // Optional ordering: compute a new StackRank between neighbours.
