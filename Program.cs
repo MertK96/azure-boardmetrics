@@ -3,6 +3,7 @@ using System.Net;
 using System.Text.RegularExpressions;
 using AzdoBoardMetrics.Data;
 using AzdoBoardMetrics.Services;
+using AzdoBoardMetrics.Endpoints;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -332,6 +333,8 @@ app.MapPatch("/api/assignments/{id:int}/assignee", async (int id, AzdoClient az,
         return Results.Problem(detail: msg, statusCode: 502);
     }
 });
+
+app.MapAssignmentMoveEndpoints();
 
 // -------------------- Kişisel Bazlı Performans --------------------
 

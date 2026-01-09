@@ -1025,6 +1025,10 @@ function createAssignCard(item){
   ].filter(Boolean).join(' ');
 
   div.className = `aCard ${cls} ${extraCls}`.trim();
+  // drag & drop support (assign view)
+  div.draggable = true;
+  div.dataset.id = String(item.id);
+  div.dataset.workItemType = String(item.workItemType || '');
 
   const typeLabel = typeRaw;
   const title = (item.title || '').trim();
