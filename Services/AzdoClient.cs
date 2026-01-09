@@ -906,6 +906,46 @@ private async Task<List<AzdoWorkItem>> GetWorkItemsBatchInternalAsync(int[] idLi
     }
 
     private static string EscapeWiql(string s) => s.Replace("'", "''");
+
+    /// <summary>
+    /// Generic patch helper used by drag/drop move operations.
+    /// Only updates the fields given in <paramref name="fields"/>.
+    /// </summary>
+    public async Task UpdateWorkItemFieldsAsync(int id, IDictionary<string, object?> fields, CancellationToken ct)
+    {
+        if (fields is null || fields.Count == 0) return;
+
+        var project = (_opt.Project ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(project))
+            throw new Exception("Project boş. AZDO_PROJECT/appsettings üzerinden proje adı gerekli.");
+
+        var patch = new List<object>();
+
+        foreach (var kv in fields)
+        {
+            var field = (kv.Key ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(field)) continue;
+
+            patch.Add(new
+            {
+                op = "add",
+                path = $"/fields/{field}",
+                value = kv.Value
+            });
+        }
+
+        var path = $"{project}/_apis/wit/workItems/{id}?api-version=7.1";
+        using var req = new HttpRequestMessage(new HttpMethod("PATCH"), path);
+        req.Content = new StringContent(JsonSerializer.Serialize(patch), Encoding.UTF8, "application/json-patch+json");
+
+        using var res = await _http.SendAsync(req, ct);
+        if (!res.IsSuccessStatusCode)
+        {
+            var body = await res.Content.ReadAsStringAsync(ct);
+            throw new Exception($"WI UpdateFields failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
+        }
+    }
+
 }
 
 public record AzdoIdentity(string? DisplayName, string? UniqueName);
@@ -1057,45 +1097,6 @@ public class AzdoRevision
         }
 
         return r;
-    }
-
-    /// <summary>
-    /// Generic patch helper used by drag/drop move operations.
-    /// Only updates the fields given in <paramref name="fields"/>.
-    /// </summary>
-    public async Task UpdateWorkItemFieldsAsync(int id, IDictionary<string, object?> fields, CancellationToken ct)
-    {
-        if (fields is null || fields.Count == 0) return;
-
-        var project = (_opt.Project ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(project))
-            throw new Exception("Project boş. AZDO_PROJECT/appsettings üzerinden proje adı gerekli.");
-
-        var patch = new List<object>();
-
-        foreach (var kv in fields)
-        {
-            var field = (kv.Key ?? "").Trim();
-            if (string.IsNullOrWhiteSpace(field)) continue;
-
-            patch.Add(new
-            {
-                op = "add",
-                path = $"/fields/{field}",
-                value = kv.Value
-            });
-        }
-
-        var path = $"{project}/_apis/wit/workItems/{id}?api-version=7.1";
-        using var req = new HttpRequestMessage(new HttpMethod("PATCH"), path);
-        req.Content = new StringContent(JsonSerializer.Serialize(patch), Encoding.UTF8, "application/json-patch+json");
-
-        using var res = await _http.SendAsync(req, ct);
-        if (!res.IsSuccessStatusCode)
-        {
-            var body = await res.Content.ReadAsStringAsync(ct);
-            throw new Exception($"WI UpdateFields failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
-        }
     }
 
 }
