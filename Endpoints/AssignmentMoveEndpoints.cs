@@ -59,16 +59,55 @@ public static class AssignmentMoveEndpoints
                     await az.UpdateWorkItemFieldsAsync(id, fields, ct);
                     return Results.Ok(new { ok = true });
                 }
+                catch (AzdoApiException aex) when (aex.StatusCode == 409)
+                {
+                    // This often happens when the same item is patched twice in quick succession
+                    // (e.g., duplicate drag/drop handlers or back-to-back moves).
+                    // If the desired end state is already applied, treat as success.
+
+                    var desiredPriority = dto.Priority;
+
+                    // Re-evaluate approval rule to know what we expected.
+                    var desiredApproved = dto.MakeApproved;
+                    if (!desiredApproved)
+                    {
+                        var wi0 = (await az.GetWorkItemsBatchAsync(new[] { id }, ct,
+                            extraFields: new[] { "System.State", "System.WorkItemType" }))
+                            .FirstOrDefault();
+
+                        var state0 = wi0?.Fields.TryGetValue("System.State", out var s0) == true ? s0?.ToString() : null;
+                        var type0 = wi0?.Fields.TryGetValue("System.WorkItemType", out var t0) == true ? t0?.ToString() : null;
+
+                        var isStoryType0 = !string.IsNullOrWhiteSpace(type0) &&
+                                           (type0.Contains("story", StringComparison.OrdinalIgnoreCase) ||
+                                            type0.Contains("backlog", StringComparison.OrdinalIgnoreCase));
+
+                        if (isStoryType0 && string.Equals(state0, "New", StringComparison.OrdinalIgnoreCase))
+                            desiredApproved = true;
+                    }
+
+                    var wi = (await az.GetWorkItemsBatchAsync(new[] { id }, ct,
+                        extraFields: new[] { "Microsoft.VSTS.Common.Priority", "System.State" }))
+                        .FirstOrDefault();
+
+                    var currentPriority = wi?.GetInt("Microsoft.VSTS.Common.Priority");
+                    var currentState = wi?.Fields.TryGetValue("System.State", out var cs) == true ? cs?.ToString() : null;
+
+                    var priorityOk = currentPriority == desiredPriority;
+                    var stateOk = !desiredApproved || string.Equals(currentState, "Approved", StringComparison.OrdinalIgnoreCase);
+
+                    if (priorityOk && stateOk)
+                        return Results.Ok(new { ok = true, conflictResolved = true });
+
+                    var msg = aex.ResponseBody ?? aex.Message;
+                    if (msg.Length > 2000) msg = msg[..2000];
+                    return Results.Json(new { message = msg }, statusCode: 409);
+                }
                 catch (Exception ex)
                 {
+                    // Always prefer clean JSON errors (avoid ProblemDetails 502 noise in the UI)
                     var msg = ex.Message;
                     if (msg.Length > 2000) msg = msg[..2000];
-
-                    // Map ADO revision mismatch to 409 so the UI can treat it as a retryable conflict
-                    // instead of a generic "bad gateway".
-                    if (msg.Contains("WorkItemRevisionMismatchException", StringComparison.OrdinalIgnoreCase))
-                        return Results.Json(new { message = msg }, statusCode: 409);
-
                     return Results.Json(new { message = msg }, statusCode: 502);
                 }
             });

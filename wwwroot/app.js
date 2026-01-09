@@ -934,9 +934,13 @@ function initAssignableDnd(){
       const targetP = c.priority;
       if(!id || !targetP) return;
 
-      // Determine if dragged item was from Stories column
       const card = document.querySelector(`.aCard[data-id="${id}"]`);
-      const fromStories = card ? !!card.closest('#assign_col_story') : false;
+
+      // Determine if dragged item was from Stories column.
+      // IMPORTANT: At 'drop' time, the DOM has already been updated, so we must use the source
+      // column stored during dragstart (text/x-from-col).
+      const fromCol = (() => { try{ return e.dataTransfer.getData('text/x-from-col') || ''; }catch{ return ''; } })();
+      const fromStories = fromCol === 'assign_col_story';
 
       // Determine order neighbors in target column
       let beforeId = null, afterId = null;
@@ -954,6 +958,13 @@ function initAssignableDnd(){
           body: JSON.stringify({ priority: targetP, makeApproved: fromStories, beforeId, afterId })
         });
         if(!res.ok){
+          // 409: Revision mismatch is common in drag/drop bursts. If the move already applied
+          // (duplicate handler, concurrent update), backend will often return 200; if it still
+          // returns 409, just refresh silently.
+          if(res.status === 409){
+            await loadAssignableItems();
+            return;
+          }
           const tx = await res.text();
           throw new Error(`move failed: ${res.status} ${tx}`);
         }
@@ -1108,6 +1119,9 @@ function createAssignCard(item){
   div.draggable = true;
   div.addEventListener('dragstart', (e) => {
     e.dataTransfer.setData('text/plain', String(item.id));
+    // Preserve source column so we can decide approval correctly after the DOM move.
+    const parentCol = div.closest('.kanBody')?.id || '';
+    try{ e.dataTransfer.setData('text/x-from-col', parentCol); }catch{}
     e.dataTransfer.effectAllowed = 'move';
     div.classList.add('dragging');
   });

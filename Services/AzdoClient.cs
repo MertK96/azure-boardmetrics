@@ -957,13 +957,32 @@ private async Task<List<AzdoWorkItem>> GetWorkItemsBatchInternalAsync(int[] idLi
                 continue;
             }
 
-            throw new Exception($"WI UpdateFields failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
+            throw new AzdoApiException(
+                message: $"WI UpdateFields failed. Status={(int)res.StatusCode} {res.StatusCode}",
+                statusCode: (int)res.StatusCode,
+                responseBody: body);
         }
     }
 
 }
 
 public record AzdoIdentity(string? DisplayName, string? UniqueName);
+
+/// <summary>
+/// Preserves Azure DevOps HTTP status + response body so callers can map conflicts correctly.
+/// </summary>
+public sealed class AzdoApiException : Exception
+{
+    public int StatusCode { get; }
+    public string? ResponseBody { get; }
+
+    public AzdoApiException(string message, int statusCode, string? responseBody)
+        : base(message)
+    {
+        StatusCode = statusCode;
+        ResponseBody = responseBody;
+    }
+}
 
 public class AzdoWorkItem
 {
