@@ -23,7 +23,31 @@ public static class AssignmentMoveEndpoints
                         ["Microsoft.VSTS.Common.Priority"] = p
                     };
 
-				if (dto.MakeApproved)
+
+                    // Approve rules:
+                    // - Explicit: client sets MakeApproved=true
+                    // - Implicit: when moving an item currently in "New" state from Stories lane.
+                    //   In practice, this is a "User Story" / "Product Backlog Item" that should become Approved
+                    //   as soon as it is prioritized.
+                    var shouldApprove = dto.MakeApproved;
+                    if (!shouldApprove)
+                    {
+                        var wi = (await az.GetWorkItemsBatchAsync(new[] { id }, ct,
+                            extraFields: new[] { "System.State", "System.WorkItemType" }))
+                            .FirstOrDefault();
+
+                        var state = wi?.Fields.TryGetValue("System.State", out var s) == true ? s?.ToString() : null;
+                        var type = wi?.Fields.TryGetValue("System.WorkItemType", out var t) == true ? t?.ToString() : null;
+
+                        var isStoryType = !string.IsNullOrWhiteSpace(type) &&
+                                          (type.Contains("story", StringComparison.OrdinalIgnoreCase) ||
+                                           type.Contains("backlog", StringComparison.OrdinalIgnoreCase));
+
+                        if (isStoryType && string.Equals(state, "New", StringComparison.OrdinalIgnoreCase))
+                            shouldApprove = true;
+                    }
+
+                    if (shouldApprove)
                         fields["System.State"] = "Approved";
 
                     // Optional ordering: compute a new StackRank between neighbours.
@@ -39,6 +63,12 @@ public static class AssignmentMoveEndpoints
                 {
                     var msg = ex.Message;
                     if (msg.Length > 2000) msg = msg[..2000];
+
+                    // Map ADO revision mismatch to 409 so the UI can treat it as a retryable conflict
+                    // instead of a generic "bad gateway".
+                    if (msg.Contains("WorkItemRevisionMismatchException", StringComparison.OrdinalIgnoreCase))
+                        return Results.Json(new { message = msg }, statusCode: 409);
+
                     return Results.Json(new { message = msg }, statusCode: 502);
                 }
             });

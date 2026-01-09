@@ -935,13 +935,28 @@ private async Task<List<AzdoWorkItem>> GetWorkItemsBatchInternalAsync(int[] idLi
         }
 
         var path = $"{project}/_apis/wit/workItems/{id}?api-version=7.1";
-        using var req = new HttpRequestMessage(new HttpMethod("PATCH"), path);
-        req.Content = new StringContent(JsonSerializer.Serialize(patch), Encoding.UTF8, "application/json-patch+json");
 
-        using var res = await _http.SendAsync(req, ct);
-        if (!res.IsSuccessStatusCode)
+        // Azure DevOps occasionally returns a WorkItemRevisionMismatchException (409) when
+        // the item was concurrently updated (e.g., drag/drop bursts). A simple retry fixes most cases.
+        for (var attempt = 0; attempt < 2; attempt++)
         {
+            using var req = new HttpRequestMessage(new HttpMethod("PATCH"), path);
+            req.Content = new StringContent(JsonSerializer.Serialize(patch), Encoding.UTF8, "application/json-patch+json");
+
+            using var res = await _http.SendAsync(req, ct);
+            if (res.IsSuccessStatusCode) return;
+
             var body = await res.Content.ReadAsStringAsync(ct);
+
+            var isRevisionMismatch = (int)res.StatusCode == 409 &&
+                                    body.Contains("WorkItemRevisionMismatchException", StringComparison.OrdinalIgnoreCase);
+
+            if (isRevisionMismatch && attempt == 0)
+            {
+                await Task.Delay(200, ct);
+                continue;
+            }
+
             throw new Exception($"WI UpdateFields failed. Status={(int)res.StatusCode} {res.StatusCode} Body: {body}");
         }
     }
