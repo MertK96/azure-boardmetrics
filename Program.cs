@@ -333,6 +333,68 @@ app.MapPatch("/api/assignments/{id:int}/assignee", async (int id, AzdoClient az,
     }
 });
 
+app.MapPatch("/api/assignments/{id:int}/move", async (int id, AppDb db, AzdoClient az, MetricsService metrics, MoveAssignmentDto dto, CancellationToken ct) =>
+{
+    try
+    {
+        var pr = Math.Clamp(dto.Priority, 1, 4);
+        var makeApproved = dto.MakeApproved;
+
+        // Optional ordering support via StackRank
+        double? newRank = null;
+        var beforeId = dto.BeforeId;
+        var afterId = dto.AfterId;
+
+        if ((beforeId.HasValue && beforeId.Value > 0) || (afterId.HasValue && afterId.Value > 0))
+        {
+            var ids = new List<int>();
+            if (beforeId.HasValue && beforeId.Value > 0 && beforeId.Value != id) ids.Add(beforeId.Value);
+            if (afterId.HasValue && afterId.Value > 0 && afterId.Value != id && afterId.Value != beforeId) ids.Add(afterId.Value);
+
+            if (ids.Count > 0)
+            {
+                var neigh = await az.GetWorkItemsBatchAsync(ids.ToArray(), ct, extraFields: new[] { "Microsoft.VSTS.Common.StackRank" });
+                double? beforeRank = null;
+                double? afterRank = null;
+
+                foreach (var wiN in neigh)
+                {
+                    if (beforeId.HasValue && wiN.Id == beforeId.Value)
+                        beforeRank = wiN.GetDouble("Microsoft.VSTS.Common.StackRank");
+                    if (afterId.HasValue && wiN.Id == afterId.Value)
+                        afterRank = wiN.GetDouble("Microsoft.VSTS.Common.StackRank");
+                }
+
+                if (beforeRank.HasValue && afterRank.HasValue)
+                    newRank = (beforeRank.Value + afterRank.Value) / 2.0;
+                else if (afterRank.HasValue)
+                    newRank = afterRank.Value - 1000.0;
+                else if (beforeRank.HasValue)
+                    newRank = beforeRank.Value + 1000.0;
+            }
+        }
+
+        await az.UpdateWorkItemMoveAsync(id, pr, makeApproved, newRank, ct);
+
+        // Refresh local cache
+        var wis = await az.GetWorkItemsBatchAsync(new[] { id }, ct, extraFields: new[] { "System.Description" });
+        var wi = wis.FirstOrDefault() ?? throw new Exception("Work item not found");
+        var revs = await az.ListRevisionsAsync(id, ct);
+        await UpsertFromAzureAsync(db, metrics, az.Options, wi, revs);
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new { ok = true });
+    }
+    catch (Exception ex)
+    {
+        var msg = ex.Message;
+        if (msg.Length > 1500) msg = msg[..1500];
+        return Results.Problem(detail: msg, statusCode: 502);
+    }
+});
+
+
+
 // -------------------- Kişisel Bazlı Performans --------------------
 
 
@@ -1302,6 +1364,7 @@ app.Run();
 
 // -------------------- DTOs --------------------
 public record AssigneePatchDto(string? AssigneeUniqueName);
+record MoveAssignmentDto(int Priority, bool MakeApproved, int? BeforeId, int? AfterId);
 public record FeedbackCreate(string? Note);
 public record CommentCreate(string? Text);
 public record ResolveDto(bool IsResolved);

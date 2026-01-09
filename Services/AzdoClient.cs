@@ -535,6 +535,39 @@ if (string.IsNullOrWhiteSpace(iterationPath))
     }
 }
 
+
+public async Task UpdateWorkItemMoveAsync(int id, int priority, bool makeApproved, double? stackRank, CancellationToken ct)
+{
+    var project = (_opt.Project ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(project))
+        throw new Exception("Project boş. AZDO_PROJECT/appsettings üzerinden proje adı gerekli.");
+
+    var ops = new List<object>();
+
+    // Priority
+    ops.Add(new { op = "add", path = "/fields/Microsoft.VSTS.Common.Priority", value = Math.Clamp(priority, 1, 4) });
+
+    // Optional ordering
+    if (stackRank.HasValue)
+        ops.Add(new { op = "add", path = "/fields/Microsoft.VSTS.Common.StackRank", value = stackRank.Value });
+
+    // Optional approval (for Stories->P columns)
+    if (makeApproved)
+        ops.Add(new { op = "add", path = "/fields/System.State", value = "Approved" });
+
+    var body = JsonSerializer.Serialize(ops);
+
+    var path = $"{project}/_apis/wit/workitems/{id}?api-version=7.1";
+    using var req = new HttpRequestMessage(new HttpMethod("PATCH"), path);
+    req.Content = new StringContent(body, Encoding.UTF8, "application/json-patch+json");
+
+    using var res = await _http.SendAsync(req, ct);
+    var txt = await res.Content.ReadAsStringAsync(ct);
+    if (!res.IsSuccessStatusCode)
+        throw new Exception($"WI update failed. Status={(int)res.StatusCode} {res.ReasonPhrase}. Body: {txt}");
+}
+
+
 public async Task<List<AzdoUserDto>> GetAzdoUsersAsync(int top, CancellationToken ct)
     {
         var org = GetOrganizationName();

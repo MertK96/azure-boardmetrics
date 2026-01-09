@@ -1,3 +1,6 @@
+window.assignableItems = window.assignableItems || [];
+var assignableItems = window.assignableItems;
+
 const $ = (id) => document.getElementById(id);
 
 let currentId = null;
@@ -887,6 +890,81 @@ async function assignReviewOwner(id, reviewerUniqueName, reviewerDisplayName){
 
 
 
+
+let _assignDndInited = false;
+
+function initAssignableDnd(){
+  if(_assignDndInited) return;
+  _assignDndInited = true;
+
+  const cols = [
+    { el: $('assign_col_story'), priority: 0, kind: 'story' },
+    { el: $('assign_col_p1'), priority: 1, kind: 'p' },
+    { el: $('assign_col_p2'), priority: 2, kind: 'p' },
+    { el: $('assign_col_p3'), priority: 3, kind: 'p' },
+    { el: $('assign_col_p4'), priority: 4, kind: 'p' }
+  ].filter(x => x.el);
+
+  function getDragAfterElement(container, y){
+    const els = [...container.querySelectorAll('.aCard:not(.dragging)')];
+    let closest = { offset: Number.NEGATIVE_INFINITY, element: null };
+    for(const child of els){
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if(offset < 0 && offset > closest.offset){
+        closest = { offset, element: child };
+      }
+    }
+    return closest.element;
+  }
+
+  for(const c of cols){
+    c.el.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      const dragging = document.querySelector('.aCard.dragging');
+      if(!dragging) return;
+      const after = getDragAfterElement(c.el, e.clientY);
+      if(after == null) c.el.appendChild(dragging);
+      else c.el.insertBefore(dragging, after);
+    });
+
+    c.el.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      const id = e.dataTransfer.getData('text/plain');
+      const targetP = c.priority;
+      if(!id || !targetP) return;
+
+      // Determine if dragged item was from Stories column
+      const card = document.querySelector(`.aCard[data-id="${id}"]`);
+      const fromStories = card ? !!card.closest('#assign_col_story') : false;
+
+      // Determine order neighbors in target column
+      let beforeId = null, afterId = null;
+      if(card){
+        const prev = card.previousElementSibling;
+        const next = card.nextElementSibling;
+        if(prev && prev.classList.contains('aCard')) beforeId = Number(prev.dataset.id || 0) || null;
+        if(next && next.classList.contains('aCard')) afterId = Number(next.dataset.id || 0) || null;
+      }
+
+      try{
+        const res = await fetch(`/api/assignments/${id}/move`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ priority: targetP, makeApproved: fromStories, beforeId, afterId })
+        });
+        if(!res.ok){
+          const tx = await res.text();
+          throw new Error(`move failed: ${res.status} ${tx}`);
+        }
+        await loadAssignableItems();
+      }catch(ex){
+        alert(`Taşıma güncellenemedi: ${ex?.message || ex}`);
+      }
+    });
+  }
+}
+
 // -------------------- Atanacak Maddeler --------------------
 function parseAssigneeLabel(item){
   const dn = (item.assignedToDisplayName || '').trim();
@@ -1025,6 +1103,16 @@ function createAssignCard(item){
   ].filter(Boolean).join(' ');
 
   div.className = `aCard ${cls} ${extraCls}`.trim();
+  div.dataset.id = String(item.id);
+  div.draggable = true;
+  div.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/plain', String(item.id));
+    e.dataTransfer.effectAllowed = 'move';
+    div.classList.add('dragging');
+  });
+  div.addEventListener('dragend', () => {
+    div.classList.remove('dragging');
+  });
 
   const typeLabel = typeRaw;
   const title = (item.title || '').trim();
@@ -1250,6 +1338,8 @@ function renderAssignable(){
   const col4 = $('assign_col_p4');
 
   if(!storiesBox || !col1 || !col2 || !col3 || !col4) return;
+
+  initAssignableDnd();
 
   const assSel = $('assign_assignee')?.value || '';
   const typeSel = $('assign_type')?.value || '';
