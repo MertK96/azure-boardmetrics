@@ -1573,4 +1573,5 @@ public sealed class CreateWorkItemRequest
     public string? Title { get; set; }
     public string? Description { get; set; } // plain text or html
     public int? Priority { get; set; } // 1..4
+    public bool? AddToTop { get; set; } // default true if omitted
 }
