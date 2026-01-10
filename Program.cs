@@ -801,49 +801,80 @@ app.MapGet("/api/performance/summary", async (AzdoClient az, string users, int y
 {
     static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
 
+    static List<(DateTime Start, DateTime EndExclusive)> BuildRanges(int year, int month, string weekToken)
+    {
+        var wk = (weekToken ?? "all").Trim().ToLowerInvariant();
+        var isWeekAll = wk == "" || wk == "all" || wk == "hepsi";
+
+        // month=0 => whole year (optionally: same week-of-month across all months)
+        if (month <= 0)
+        {
+            if (isWeekAll)
+            {
+                var s = new DateTime(year, 1, 1);
+                return new List<(DateTime, DateTime)> { (s, s.AddYears(1)) };
+            }
+
+            if (!int.TryParse(wk, out var wn)) wn = 1;
+            wn = Math.Clamp(wn, 1, 5);
+
+            var ranges = new List<(DateTime, DateTime)>(12);
+            for (var m = 1; m <= 12; m++)
+            {
+                var dim = DateTime.DaysInMonth(year, m);
+                var startDay = 1 + (wn - 1) * 7;
+                if (startDay > dim) startDay = Math.Max(1, dim - 6);
+                var endDay = Math.Min(startDay + 6, dim);
+                var s = new DateTime(year, m, startDay);
+                var e = new DateTime(year, m, endDay).AddDays(1);
+                ranges.Add((s, e));
+            }
+            return ranges;
+        }
+
+        // month > 0
+        {
+            var mStart = new DateTime(year, month, 1);
+            var dim = DateTime.DaysInMonth(year, month);
+            var start = mStart;
+            var endExclusive = mStart.AddMonths(1);
+
+            if (!isWeekAll)
+            {
+                if (!int.TryParse(wk, out var wn)) wn = 1;
+                wn = Math.Clamp(wn, 1, 5);
+
+                var startDay = 1 + (wn - 1) * 7;
+                if (startDay > dim) startDay = Math.Max(1, dim - 6);
+                var endDay = Math.Min(startDay + 6, dim);
+                start = new DateTime(year, month, startDay);
+                endExclusive = new DateTime(year, month, endDay).AddDays(1);
+            }
+
+            return new List<(DateTime, DateTime)> { (start, endExclusive) };
+        }
+    }
+
+    static string BuildOrRangeClause(string fieldName, List<(DateTime Start, DateTime EndExclusive)> ranges)
+    {
+        // ( (field >= 'yyyy-MM-dd' AND field < 'yyyy-MM-dd') OR ... )
+        var parts = ranges.Select(r =>
+        {
+            var s = r.Start.ToString("yyyy-MM-dd");
+            var e = r.EndExclusive.ToString("yyyy-MM-dd");
+            return $"([{fieldName}] >= '{s}' AND [{fieldName}] < '{e}')";
+        });
+        return "(" + string.Join(" OR ", parts) + ")";
+    }
+
     try
     {
         var take = Math.Clamp(top ?? 1200, 1, 5000);
 
 
-        // period range (year/month/week)
-        var weekToken = (week ?? "all").Trim().ToLowerInvariant();
-        var isWeekAll = weekToken == "" || weekToken == "all" || weekToken == "hepsi";
-
-        DateTime start;
-        DateTime endExclusive;
-
-// month=0 => all months in year
-if (month <= 0)
-{
-    start = new DateTime(year, 1, 1);
-    endExclusive = start.AddYears(1);
-}
-else
-{
-    var mStart = new DateTime(year, month, 1);
-    var dim = DateTime.DaysInMonth(year, month);
-
-    start = mStart;
-    endExclusive = mStart.AddMonths(1);
-
-    if (!isWeekAll)
-    {
-        if (!int.TryParse(weekToken, out var wn)) wn = 1;
-        if (wn < 1) wn = 1;
-        if (wn > 5) wn = 5;
-
-        var startDay = 1 + (wn - 1) * 7;
-        if (startDay > dim) startDay = Math.Max(1, dim - 6);
-
-        var endDay = Math.Min(startDay + 6, dim);
-
-        start = new DateTime(year, month, startDay);
-        endExclusive = new DateTime(year, month, endDay).AddDays(1);
-    }
-}
-        var sinceStr = start.ToString("yyyy-MM-dd");
-        var untilStr = endExclusive.ToString("yyyy-MM-dd");
+        // period ranges (year/month/week)
+        var ranges = BuildRanges(year, month, week);
+        var changedDateClause = BuildOrRangeClause("System.ChangedDate", ranges);
 
         var projRaw = (az.Options.Project ?? "").Trim();
         var proj = EscapeWiql(projRaw);
@@ -911,8 +942,7 @@ WHERE
     {projectClause}[System.State] <> 'Removed'
     AND {assignedClause}
     AND [System.WorkItemType] IN ('User Story','Bug','Product Backlog Item')
-    AND [System.ChangedDate] >= '{sinceStr}'
-    AND [System.ChangedDate] < '{untilStr}'
+    AND {changedDateClause}
 ORDER BY [System.ChangedDate] DESC";
 
             var ids = await az.QueryWorkItemIdsByWiqlAsync(wiql, ct);
@@ -948,6 +978,16 @@ ORDER BY [System.ChangedDate] DESC";
                 if (isStory) stories++;
                 else if (isBug) bugs++;
 
+                bool IsInRanges(DateTime utcDateTime)
+                {
+                    // ranges are DateTime (kind unspecified). We treat work item dates as UTC here.
+                    foreach (var (rs, re) in ranges)
+                    {
+                        if (utcDateTime >= rs && utcDateTime < re) return true;
+                    }
+                    return false;
+                }
+
                 if (IsDone(state))
                 {
                     // Count by first "Done" date (ClosedDate preferred, then ResolvedDate)
@@ -955,7 +995,7 @@ ORDER BY [System.ChangedDate] DESC";
                     if (dd.HasValue)
                     {
                         var d = dd.Value.UtcDateTime;
-                        if (d >= start && d < endExclusive) done++;
+                        if (IsInRanges(d)) done++;
                     }
                 }
                 else if (IsInProgress(state))
@@ -1004,6 +1044,72 @@ app.MapGet("/api/performance/done", async (AzdoClient az, string user, int year,
 {
     static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
 
+    static List<(DateTime Start, DateTime EndExclusive)> BuildRanges(int year, int month, string weekToken)
+    {
+        var wk = (weekToken ?? "all").Trim().ToLowerInvariant();
+        var isWeekAll = wk == "" || wk == "all" || wk == "hepsi";
+
+        // month=0 => whole year (optionally: same week-of-month across all months)
+        if (month <= 0)
+        {
+            if (isWeekAll)
+            {
+                var s = new DateTime(year, 1, 1);
+                return new List<(DateTime, DateTime)> { (s, s.AddYears(1)) };
+            }
+
+            if (!int.TryParse(wk, out var wn)) wn = 1;
+            wn = Math.Clamp(wn, 1, 5);
+
+            var ranges = new List<(DateTime, DateTime)>(12);
+            for (var m = 1; m <= 12; m++)
+            {
+                var dim = DateTime.DaysInMonth(year, m);
+                var startDay = 1 + (wn - 1) * 7;
+                if (startDay > dim) startDay = Math.Max(1, dim - 6);
+                var endDay = Math.Min(startDay + 6, dim);
+                var s = new DateTime(year, m, startDay);
+                var e = new DateTime(year, m, endDay).AddDays(1);
+                ranges.Add((s, e));
+            }
+            return ranges;
+        }
+
+        // month > 0
+        {
+            var mStart = new DateTime(year, month, 1);
+            var dim = DateTime.DaysInMonth(year, month);
+            var start = mStart;
+            var endExclusive = mStart.AddMonths(1);
+
+            if (!isWeekAll)
+            {
+                if (!int.TryParse(wk, out var wn)) wn = 1;
+                wn = Math.Clamp(wn, 1, 5);
+
+                var startDay = 1 + (wn - 1) * 7;
+                if (startDay > dim) startDay = Math.Max(1, dim - 6);
+                var endDay = Math.Min(startDay + 6, dim);
+                start = new DateTime(year, month, startDay);
+                endExclusive = new DateTime(year, month, endDay).AddDays(1);
+            }
+
+            return new List<(DateTime, DateTime)> { (start, endExclusive) };
+        }
+    }
+
+    static string BuildOrRangeClause(string fieldName, List<(DateTime Start, DateTime EndExclusive)> ranges)
+    {
+        // ( (field >= 'yyyy-MM-dd' AND field < 'yyyy-MM-dd') OR ... )
+        var parts = ranges.Select(r =>
+        {
+            var s = r.Start.ToString("yyyy-MM-dd");
+            var e = r.EndExclusive.ToString("yyyy-MM-dd");
+            return $"([{fieldName}] >= '{s}' AND [{fieldName}] < '{e}')";
+        });
+        return "(" + string.Join(" OR ", parts) + ")";
+    }
+
     try
     {
         var uRaw = (user ?? "").Trim();
@@ -1012,45 +1118,10 @@ app.MapGet("/api/performance/done", async (AzdoClient az, string user, int year,
 
         var take = Math.Clamp(top ?? 2000, 1, 10000);
 
-        // date range: month or week-in-month (1..5). week=all => month
-        var weekToken = (week ?? "all").Trim().ToLowerInvariant();
-        var isWeekAll = weekToken == "" || weekToken == "all" || weekToken == "hepsi";
-
-        DateTime start;
-        DateTime endExclusive;
-
-        // month=0 => all months in year
-        if (month <= 0)
-        {
-            start = new DateTime(year, 1, 1);
-            endExclusive = start.AddYears(1);
-        }
-        else
-        {
-            var mStart = new DateTime(year, month, 1);
-            var dim = DateTime.DaysInMonth(year, month);
-
-            start = mStart;
-            endExclusive = mStart.AddMonths(1);
-
-            if (!isWeekAll)
-            {
-                if (!int.TryParse(weekToken, out var wn)) wn = 1;
-                if (wn < 1) wn = 1;
-                if (wn > 5) wn = 5;
-
-                var startDay = 1 + (wn - 1) * 7;
-                if (startDay > dim) startDay = Math.Max(1, dim - 6);
-
-                var endDay = Math.Min(startDay + 6, dim);
-
-                start = new DateTime(year, month, startDay);
-                endExclusive = new DateTime(year, month, endDay).AddDays(1);
-            }
-        }
-
-        var sinceStr = start.ToString("yyyy-MM-dd");
-        var untilStr = endExclusive.ToString("yyyy-MM-dd");
+        // period ranges (year/month/week)
+        var ranges = BuildRanges(year, month, week);
+        var closedClause = BuildOrRangeClause("Microsoft.VSTS.Common.ClosedDate", ranges);
+        var resolvedClause = BuildOrRangeClause("Microsoft.VSTS.Common.ResolvedDate", ranges);
 
         var projRaw = (az.Options.Project ?? "").Trim();
         var proj = EscapeWiql(projRaw);
@@ -1092,9 +1163,9 @@ WHERE
     AND [System.WorkItemType] IN ('Bug','Product Backlog Item')
     AND [System.State] IN ({doneIn})
     AND (
-        ([Microsoft.VSTS.Common.ClosedDate] >= '{sinceStr}' AND [Microsoft.VSTS.Common.ClosedDate] < '{untilStr}')
+        {closedClause}
         OR
-        ([Microsoft.VSTS.Common.ResolvedDate] >= '{sinceStr}' AND [Microsoft.VSTS.Common.ResolvedDate] < '{untilStr}')
+        {resolvedClause}
     )
 ORDER BY [Microsoft.VSTS.Common.ClosedDate] ASC, [Microsoft.VSTS.Common.ResolvedDate] ASC";
 
@@ -1148,9 +1219,20 @@ ORDER BY [Microsoft.VSTS.Common.ClosedDate] ASC, [Microsoft.VSTS.Common.Resolved
         var items = new List<PerfDoneItemDto>();
 
         // Filter by *completed date* in selected local period (not changed date).
-        // This avoids odd ordering/empty gaps when work items were edited later.
-        var startLocalDate = start.Date;
-        var endLocalDateEx = endExclusive.Date;
+        // NOTE: For month=0 + week!=all, we want "same week-of-month" across all months,
+        // so the period is a set of ranges (not a single continuous range).
+        var localRanges = ranges
+            .Select(r => (Start: r.Start.Date, EndExclusive: r.EndExclusive.Date))
+            .ToList();
+
+        bool IsInLocalRanges(DateTime localDate)
+        {
+            foreach (var (rs, re) in localRanges)
+            {
+                if (localDate >= rs && localDate < re) return true;
+            }
+            return false;
+        }
 
         foreach (var id in ids)
         {
@@ -1165,7 +1247,7 @@ ORDER BY [Microsoft.VSTS.Common.ClosedDate] ASC, [Microsoft.VSTS.Common.Resolved
             // Convert to local date for period filter
             var utc = completed.UtcDateTime;
             var localDate = TimeZoneInfo.ConvertTimeFromUtc(utc, tz).Date;
-            if (localDate < startLocalDate || localDate >= endLocalDateEx)
+            if (!IsInLocalRanges(localDate))
                 continue;
 
             items.Add(new PerfDoneItemDto
@@ -1187,7 +1269,7 @@ ORDER BY [Microsoft.VSTS.Common.ClosedDate] ASC, [Microsoft.VSTS.Common.Resolved
             .ThenBy(x => x.Id)
             .ToList();
 
-        // Build daily candles (continuous range: include days with zero)
+        // Build daily candles (include days with zero) for the selected ranges
         var itemGroups = items
             .GroupBy(x =>
             {
@@ -1197,7 +1279,16 @@ ORDER BY [Microsoft.VSTS.Common.ClosedDate] ASC, [Microsoft.VSTS.Common.Resolved
             .ToDictionary(g => g.Key, g => g.ToList());
 
         var candles = new List<PerfCandleDto>();
-        for (var day = startLocalDate; day < endLocalDateEx; day = day.AddDays(1))
+
+        // Enumerate the selected days in order (ranges may be disjoint)
+        var days = new SortedSet<DateTime>();
+        foreach (var (rs, re) in localRanges)
+        {
+            for (var day = rs; day < re; day = day.AddDays(1))
+                days.Add(day);
+        }
+
+        foreach (var day in days)
         {
             if (!itemGroups.TryGetValue(day, out var list))
                 list = new List<PerfDoneItemDto>();

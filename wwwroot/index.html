@@ -153,11 +153,13 @@
               <button id="assign_tags_btn" type="button" class="ddBtn">Tags</button>
               <div id="assign_tags_menu" class="ddMenu hidden">
                 <div class="ddHead">
-                  <div class="ddMode">
-                    <span class="muted">Mode:</span>
-                    <label class="ddRadio"><input type="radio" name="assign_tag_mode" value="or" checked> OR</label>
-                    <label class="ddRadio"><input type="radio" name="assign_tag_mode" value="and"> AND</label>
-                  </div>
+                  <input id="assign_tags_search" class="ddSearch" placeholder="Search tags" />
+                  <button id="assign_tags_clear" type="button" class="ddClear">Clear</button>
+                </div>
+                <div class="ddMode">
+                  <span class="muted">Mode:</span>
+                  <label class="ddRadio"><input type="radio" name="assign_tag_mode" value="or" checked> OR</label>
+                  <label class="ddRadio"><input type="radio" name="assign_tag_mode" value="and"> AND</label>
                 </div>
                 <div id="assign_tags_list" class="tagsBox"></div>
               </div>
