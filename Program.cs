@@ -171,12 +171,21 @@ try
 // -------------------- Atanacak Maddeler (Assignments) --------------------
 static string EscapeWiql(string s) => (s ?? "").Replace("'", "''");
 
+static string NormalizePath(string? v)
+{
+    if (string.IsNullOrWhiteSpace(v)) return "";
+    var s = v.Trim();
+    // Render UI sometimes stores double backslashes literally.
+    while (s.Contains("\\\\")) s = s.Replace("\\\\", "\\");
+    return s;
+}
+
 
 
 static string BuildAreaClause(AzdoOptions o)
 {
     var project = (o.Project ?? "").Trim();
-    var area = (o.DefaultAreaPath ?? "").Trim();
+    var area = NormalizePath(o.DefaultAreaPath);
     if (string.IsNullOrWhiteSpace(area))
     {
         var team = (o.Team ?? "").Trim();
@@ -200,12 +209,13 @@ app.MapGet("/api/assignments/items", async (AzdoClient az, int? top, Cancellatio
             ? "" // project empty => query across org scope
             : $"    [System.TeamProject] = '{proj}'\n    AND ";
 
-                var areaClause = BuildAreaClause(az.Options);
+        var areaClause = BuildAreaClause(az.Options);
 
-var wiql = $@"SELECT [System.Id]
+        var wiql = $@"SELECT [System.Id]
 FROM WorkItems
 WHERE
 {projectClause}    [System.State] <> 'Removed'
+{areaClause}
     AND (
         (
             [System.State] IN ('New','Yeni')
@@ -1086,6 +1096,23 @@ app.MapGet("/api/workitems", async (AppDbContext db, IOptions<AzdoOptions> opt, 
 
     var q = db.WorkItems.AsNoTracking()
         .Where(x => x.State != null && inProgStates.Contains(x.State));
+
+    // Team scope (AreaPath)
+    var area = NormalizePath(o.DefaultAreaPath);
+    if (string.IsNullOrWhiteSpace(area))
+    {
+        var proj = (o.Project ?? "").Trim();
+        var team = (o.Team ?? "").Trim();
+        area = !string.IsNullOrWhiteSpace(team) && !string.IsNullOrWhiteSpace(proj)
+            ? $"{proj}\\{team}"
+            : proj;
+    }
+
+    if (!string.IsNullOrWhiteSpace(area))
+    {
+        var prefix = area + "\\";
+        q = q.Where(x => x.AreaPath != null && (x.AreaPath == area || x.AreaPath.StartsWith(prefix)));
+    }
 
     // Board sekmesi yalnızca Bug + Product Backlog Item göstermeli (Feature/Task vs. gelmesin)
     q = q.Where(x => x.WorkItemType == "Bug" || x.WorkItemType == "Product Backlog Item");
