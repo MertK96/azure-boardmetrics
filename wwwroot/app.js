@@ -6,6 +6,10 @@ const $ = (id) => document.getElementById(id);
 let currentId = null;
 let currentDetailDescHtml = '';
 let azdoCfg = null;
+// cached lists for client-side filtering (same model as "Atanacak Maddeler")
+let boardItems = [];
+let reviewItems = [];
+
 
 let activeView = 'board'; // 'board' | 'review' | 'assign' | 'perf'
 let assignAutoTimer = null;
@@ -118,7 +122,19 @@ async function ensureAzdoUsers(){
       const r2 = await fetch('/api/assignees');
       if(r2.ok){
         const arr = await r2.json();
-        azdoUsers = (arr || []).map(x => ({ displayName: String(x||'').trim(), uniqueName: String(x||'').trim() }));
+        azdoUsers = (arr || [])
+          .map(x => {
+            if(!x) return null;
+            if(typeof x === 'string'){
+              const s = String(x).trim();
+              return s ? { displayName: s, uniqueName: s } : null;
+            }
+            const dn = String(x.displayName || '').trim();
+            const un = String(x.uniqueName || '').trim();
+            if(!dn && !un) return null;
+            return { displayName: dn, uniqueName: un || dn };
+          })
+          .filter(Boolean);
       }
     }catch(_){ }
   }
@@ -146,12 +162,22 @@ async function ensureAssignees(){
     const res = await fetch('/api/assignees');
     if(res.ok){
       const arr = await res.json();
+      // Backward compat:
+      // - eski: ["a@b.com", ...]
+      // - yeni: [{ displayName, uniqueName }, ...]
       assignees = (arr || [])
-        .filter(x => x && String(x).trim().length > 0)
-        .map(x => ({
-          displayName: String(x).trim(),
-          uniqueName: String(x).trim()
-        }));
+        .map(x => {
+          if(!x) return null;
+          if(typeof x === 'string'){
+            const s = String(x).trim();
+            return s ? { displayName: s, uniqueName: s } : null;
+          }
+          const dn = String(x.displayName || '').trim();
+          const un = String(x.uniqueName || '').trim();
+          if(!dn && !un) return null;
+          return { displayName: dn, uniqueName: un || dn };
+        })
+        .filter(Boolean);
     }
   }catch(_){ /* ignore */ }
 
@@ -471,11 +497,9 @@ async function load(){
   }
 
 
-  const assignee = $('assignee').value.trim();
   const mode = $('mode').value;
 
   const params = new URLSearchParams();
-  if(assignee) params.set('assignee', assignee);
   if(mode === 'pool') params.set('flagged', 'pool');
   params.set('top', '400');
 
@@ -492,12 +516,68 @@ async function load(){
     return;
   }
 
-  const data = await res.json();
+  boardItems = await res.json();
+  fillBoardAssigneeFilter(boardItems);
+  renderBoard();
+}
 
-  const tbody = $('tbl').querySelector('tbody');
+function fillBoardAssigneeFilter(items){
+  const sel = $('assignee');
+  if(!sel) return;
+
+  const current = (sel.value || '').trim();
+
+  const map = new Map(); // uniqueName -> label
+  for(const it of (items || [])){
+    const u = (it.assignedToUniqueName || '').trim();
+    const label = parseAssigneeLabel(it);
+    if(u && label && !map.has(u)) map.set(u, label);
+  }
+  const arr = Array.from(map.entries()).map(([u,label]) => ({ u, label }));
+  arr.sort((a,b) => (a.label || '').localeCompare((b.label || ''), 'tr'));
+
+  sel.innerHTML = '';
+
+  const optAll = document.createElement('option');
+  optAll.value = '';
+  optAll.textContent = 'Hepsi';
+  sel.appendChild(optAll);
+
+  const optUn = document.createElement('option');
+  optUn.value = '__unassigned__';
+  optUn.textContent = 'Unassigned';
+  sel.appendChild(optUn);
+
+  for(const x of arr){
+    const o = document.createElement('option');
+    o.value = x.u;
+    o.textContent = x.label;
+    sel.appendChild(o);
+  }
+
+  // restore if possible
+  if(current) sel.value = current;
+}
+
+function renderBoard(){
+  const tbody = $('tbl')?.querySelector('tbody');
+  const statusEl = $('status');
+  if(!tbody) return;
+
+  const sel = ($('assignee')?.value || '').trim();
+  const mode = $('mode')?.value || 'all';
+
+  const filtered = (boardItems || []).filter(wi => {
+    if(mode === 'pool' && !wi.needsFeedback) return false;
+    if(!sel) return true;
+    const u = (wi.assignedToUniqueName || '').trim();
+    if(sel === '__unassigned__') return !u;
+    return u.toLowerCase() === sel.toLowerCase();
+  });
+
   tbody.innerHTML = '';
 
-  for(const wi of data){
+  for(const wi of filtered){
     const tr = document.createElement('tr');
 
     // Pool
@@ -537,7 +617,7 @@ async function load(){
     tbody.appendChild(tr);
   }
 
-  $('status').textContent = `ok (${data.length})`;
+  if(statusEl) statusEl.textContent = `ok (${filtered.length})`;
 }
 
 async function openDetail(id){
@@ -848,39 +928,92 @@ function renderReviewRow(wi){
   return tr;
 }
 
-async function loadReviewItems(){
-  await ensureAzdoUsers();
+function fillReviewAssigneeFilter(items){
+  const sel = $('review_assignee');
+  if(!sel) return;
 
+  const current = (sel.value || '').trim();
+
+  const map = new Map(); // uniqueName -> label
+  for(const it of (items || [])){
+    const u = (it.assignedToUniqueName || '').trim();
+    const label = parseAssigneeLabel(it);
+    if(u && label && !map.has(u)) map.set(u, label);
+  }
+  const arr = Array.from(map.entries()).map(([u,label]) => ({ u, label }));
+  arr.sort((a,b) => (a.label || '').localeCompare((b.label || ''), 'tr'));
+
+  sel.innerHTML = '';
+
+  const optAll = document.createElement('option');
+  optAll.value = '';
+  optAll.textContent = 'Hepsi';
+  sel.appendChild(optAll);
+
+  const optUn = document.createElement('option');
+  optUn.value = '__unassigned__';
+  optUn.textContent = 'Unassigned';
+  sel.appendChild(optUn);
+
+  for(const x of arr){
+    const o = document.createElement('option');
+    o.value = x.u;
+    o.textContent = x.label;
+    sel.appendChild(o);
+  }
+
+  // restore if possible
+  if(current) sel.value = current;
+}
+
+function renderReview(){
   const status = $('review_status');
   const tbody = $('tbl_review')?.querySelector('tbody');
   if(!tbody) return;
 
-  const assignee = ($('review_assignee')?.value || '').trim();
-  const q = new URLSearchParams();
-  if(assignee) q.set('assignee', assignee);
-  q.set('top', '500');
+  const sel = ($('review_assignee')?.value || '').trim();
 
+  const filtered = (reviewItems || []).filter(wi => {
+    if(!sel) return true;
+    const u = (wi.assignedToUniqueName || '').trim();
+    if(sel === '__unassigned__') return !u;
+    return u.toLowerCase() === sel.toLowerCase();
+  });
+
+  tbody.innerHTML = '';
+  (filtered || []).forEach(wi => tbody.appendChild(renderReviewRow(wi)));
+
+  if(status) status.textContent = `${(filtered || []).length} madde`;
+}
+
+async function loadReviewItems(){
+  await ensureAzdoUsers();
+  await ensureAssignees();
+
+  const status = $('review_status');
   if(status) status.textContent = 'yükleniyor...';
 
-  let list = [];
   try{
+    const q = new URLSearchParams();
+    q.set('top', '500');
     const res = await fetch('/api/code-review/items?' + q.toString());
     if(!res.ok){
       const err = await res.json().catch(() => null);
       if(status) status.textContent = err?.message || `hata: ${res.status}`;
-      tbody.innerHTML = '';
+      reviewItems = [];
+      renderReview();
       return;
     }
-    list = await res.json();
+    reviewItems = await res.json();
   }catch(ex){
     if(status) status.textContent = ex?.message || 'hata';
-    tbody.innerHTML = '';
+    reviewItems = [];
+    renderReview();
     return;
   }
 
-  tbody.innerHTML = '';
-  (list || []).forEach(wi => tbody.appendChild(renderReviewRow(wi)));
-  if(status) status.textContent = `${(list || []).length} madde`;
+  fillReviewAssigneeFilter(reviewItems);
+  renderReview();
 }
 
 async function assignReviewOwner(id, reviewerUniqueName, reviewerDisplayName){
@@ -1248,7 +1381,7 @@ function renderTypePicker(item, typeLabel){
   return `
     <select class="aTypeSel" data-wi="${item.id}">
       <option value="Bug" ${bugSel}>Bug</option>
-      <option value="Product Backlog Item" ${pbiSel}>PBI</option>
+      <option value="Product Backlog Item" ${pbiSel}>Product Backlog Item</option>
     </select>
   `;
 }
@@ -1656,6 +1789,16 @@ if(assignBtn) assignBtn.addEventListener('click', () => setView('assign'));
 
 const reviewRefreshBtn = $('review_refresh');
 if(reviewRefreshBtn) reviewRefreshBtn.addEventListener('click', loadReviewItems);
+
+// board filters (client-side)
+const boardAssigneeSel = $('assignee');
+if(boardAssigneeSel) boardAssigneeSel.addEventListener('change', renderBoard);
+const modeSel = $('mode');
+if(modeSel) modeSel.addEventListener('change', renderBoard);
+
+// review filters (client-side)
+const reviewAssigneeSel = $('review_assignee');
+if(reviewAssigneeSel) reviewAssigneeSel.addEventListener('change', renderReview);
 
 // assign view
 const assignRefreshBtn = $('assign_refresh');

@@ -39,6 +39,25 @@ var resolutions = new ConcurrentDictionary<long, ResolutionEntry>();
 // ---- API ----
 app.MapGet("/api/health", () => Results.Ok(new { ok = true, ts = DateTimeOffset.UtcNow }));
 
+static HashSet<string> GetAllowedUsers(AzdoOptions o)
+{
+    return (o.Users ?? Array.Empty<string>())
+        .Where(x => !string.IsNullOrWhiteSpace(x))
+        .Select(x => x.Trim())
+        .Where(x => x.Length > 0)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+}
+
+static string PrettyNameFromEmail(string email)
+{
+    var local = (email ?? "").Trim();
+    var at = local.IndexOf('@');
+    if (at > 0) local = local[..at];
+    var parts = local.Split(new[] { '.', '_', '-' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    return string.Join(" ", parts.Select(p => p.Length == 0 ? p : char.ToUpperInvariant(p[0]) + p[1..]));
+}
+
 app.MapGet("/api/config", (IConfiguration cfg) =>
 {
     var az = cfg.GetSection("Azdo").Get<AzdoOptions>() ?? new();
@@ -46,21 +65,69 @@ app.MapGet("/api/config", (IConfiguration cfg) =>
     return Results.Ok(az);
 });
 
-app.MapGet("/api/assignees", (IOptions<AzdoOptions> opt) =>
+// "Assignee" seçimleri sadece env/config'teki allow-list'ten gelsin.
+// Dönüş tipi: [{ displayName, uniqueName }]
+app.MapGet("/api/assignees", async (AzdoClient az, IOptions<AzdoOptions> opt, int? top, CancellationToken ct) =>
 {
-    var users = (opt.Value.Users ?? Array.Empty<string>())
-        .Where(x => !string.IsNullOrWhiteSpace(x))
-        .Select(x => x.Trim())
-        .Distinct()
-        .ToArray();
+    var allowed = GetAllowedUsers(opt.Value);
+    if (allowed.Count == 0)
+    {
+        // allow-list yoksa yine de bir şey döndür (tüm kullanıcılar)
+        var all = await az.GetAzdoUsersAsync(Math.Clamp(top ?? 300, 1, 2000), ct);
+        return Results.Ok(all);
+    }
 
-    return Results.Ok(users);
+    List<AzdoUserDto> allUsers;
+    try { allUsers = await az.GetAzdoUsersAsync(Math.Clamp(top ?? 2000, 1, 2000), ct); }
+    catch { allUsers = new List<AzdoUserDto>(); }
+
+    var filtered = allUsers
+        .Where(u => !string.IsNullOrWhiteSpace(u.UniqueName) && allowed.Contains(u.UniqueName!.Trim()))
+        .GroupBy(u => u.UniqueName!.Trim(), StringComparer.OrdinalIgnoreCase)
+        .Select(g => g.First())
+        .ToList();
+
+    // allow-list'te var ama graph'ta bulunamadıysa yine de ekle
+    var present = filtered
+        .Where(x => !string.IsNullOrWhiteSpace(x.UniqueName))
+        .Select(x => x.UniqueName!.Trim())
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    foreach (var email in allowed)
+    {
+        if (!present.Contains(email))
+        {
+            filtered.Add(new AzdoUserDto
+            {
+                UniqueName = email,
+                DisplayName = PrettyNameFromEmail(email)
+            });
+        }
+    }
+
+    filtered = filtered
+        .OrderBy(x => (x.DisplayName ?? x.UniqueName ?? ""), StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    return Results.Ok(filtered);
 });
 
 app.MapGet("/api/azdo/users", async (AzdoClient az, int? top, CancellationToken ct) =>
 {
     var take = Math.Clamp(top ?? 300, 1, 2000);
     var users = await az.GetAzdoUsersAsync(take, ct);
+
+    // Eğer env/config'te Users allow-list varsa, sadece onları döndür.
+    var allowed = GetAllowedUsers(az.Options);
+    if (allowed.Count > 0)
+    {
+        users = users
+            .Where(u => !string.IsNullOrWhiteSpace(u.UniqueName) && allowed.Contains(u.UniqueName!.Trim()))
+            .GroupBy(u => u.UniqueName!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .ToList();
+    }
+
     return Results.Ok(users);
 });
 
@@ -101,9 +168,18 @@ app.MapGet("/api/code-review/items", async (AzdoClient az, string? assignee, int
         var assigned = wi.GetIdentity("System.AssignedTo");
         if (!string.IsNullOrWhiteSpace(assignee))
         {
-            var a = assignee.Trim().ToLowerInvariant();
-            var u = (assigned?.UniqueName ?? "").Trim().ToLowerInvariant();
-            if (u != a) continue;
+            var a = assignee.Trim();
+            if (a.Equals("__unassigned__", StringComparison.OrdinalIgnoreCase))
+            {
+                var u0 = (assigned?.UniqueName ?? "").Trim();
+                if (!string.IsNullOrWhiteSpace(u0)) continue;
+            }
+            else
+            {
+                var al = a.ToLowerInvariant();
+                var u = (assigned?.UniqueName ?? "").Trim().ToLowerInvariant();
+                if (u != al) continue;
+            }
         }
 
         AzdoIdentity? reviewOwner = null;
