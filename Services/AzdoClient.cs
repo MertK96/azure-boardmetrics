@@ -103,19 +103,42 @@ public class AzdoClient
 
     public AzdoOptions Options => _opt;
 
+// Team scope for queries.
+// Uses DefaultAreaPath if provided, otherwise falls back to "{Project}\{Team}" or "{Project}".
+private string GetEffectiveAreaPath()
+{
+    var project = (_opt.Project ?? "").Trim();
+    var area = NormalizePathEnv(_opt.DefaultAreaPath)?.Trim();
+    if (!string.IsNullOrWhiteSpace(area)) return area;
+
+    var team = (_opt.Team ?? "").Trim();
+    if (!string.IsNullOrWhiteSpace(team) && !string.IsNullOrWhiteSpace(project))
+        return $"{project}\{team}";
+
+    return project;
+}
+
+
     public async Task<List<int>> QueryWorkItemIdsAsync(DateTimeOffset changedSinceUtc, CancellationToken ct)
     {
         // WIQL "date precision" istiyor -> SADECE tarih (YYYY-MM-DD)
         var sinceDate = changedSinceUtc.UtcDateTime.ToString("yyyy-MM-dd");
         var proj = EscapeWiql(_opt.Project);
 
-        var wiql = $@"
+        
+
+        var areaPath = GetEffectiveAreaPath();
+        var areaClause = string.IsNullOrWhiteSpace(areaPath)
+            ? ""
+            : $@"    AND [System.AreaPath] UNDER '{EscapeWiql(areaPath)}'
+";
+var wiql = $@"
 SELECT [System.Id]
 FROM WorkItems
 WHERE
     [System.TeamProject] = '{proj}'
     AND [System.ChangedDate] >= '{sinceDate}'
-    AND [System.State] <> 'Removed'
+{areaClause}    AND [System.State] <> 'Removed'
 ORDER BY [System.ChangedDate] DESC";
 
         var path = $"{_opt.Project}/_apis/wit/wiql?api-version=7.1";
@@ -156,12 +179,18 @@ ORDER BY [System.ChangedDate] DESC";
         var col = EscapeWiql(boardColumn ?? "");
         var proj = EscapeWiql(_opt.Project);
 
+        var areaPath = GetEffectiveAreaPath();
+        var areaClause = string.IsNullOrWhiteSpace(areaPath)
+            ? ""
+            : $"\n    AND [System.AreaPath] UNDER '{EscapeWiql(areaPath)}'";
+
         var wiql = $@"
 SELECT [System.Id]
 FROM WorkItems
 WHERE
     [System.TeamProject] = '{proj}'
     AND [System.BoardColumn] = '{col}'
+    {areaClause}
     AND [System.State] <> 'Removed'
 ORDER BY [System.ChangedDate] DESC";
 

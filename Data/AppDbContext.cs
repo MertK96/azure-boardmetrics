@@ -44,6 +44,8 @@ public class WorkItemEntity
     public string? AssignedToDisplayName { get; set; }
     public string? AssignedToUniqueName { get; set; }
 
+    public string? AreaPath { get; set; }
+
     public string? IterationPath { get; set; }
     public string? Tags { get; set; }
 

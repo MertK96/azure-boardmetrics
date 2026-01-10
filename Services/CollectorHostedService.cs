@@ -150,6 +150,7 @@ foreach (var chunk in ids.Chunk(200))
     entity.Title = wi.GetString("System.Title");
     entity.WorkItemType = wi.GetString("System.WorkItemType");
     entity.State = wi.GetString("System.State");
+    entity.AreaPath = wi.GetString("System.AreaPath");
     entity.IterationPath = wi.GetString("System.IterationPath");
     entity.Tags = wi.GetString("System.Tags");
     entity.BoardColumn = wi.GetString("System.BoardColumn");

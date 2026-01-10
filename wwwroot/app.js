@@ -25,6 +25,9 @@ let perfDailyStacks = [];
 let azdoUsersLoaded = false;
 let azdoUsers = [];
 
+let assigneesLoaded = false;
+let assignees = [];
+
 let activeTab = 'note'; // 'note' | 'comment'
 
 function pad2(n){ return String(n).padStart(2,'0'); }
@@ -73,6 +76,7 @@ function setView(view){
   if(view === 'assign'){
     ensureConfig()
       .then(() => ensureAzdoUsers())
+      .then(() => ensureAssignees())
       .then(() => {
         if(!assignLoaded) loadAssignableItems();
         else renderAssignable();
@@ -133,6 +137,31 @@ async function ensureAzdoUsers(){
   });
 
   azdoUsersLoaded = true;
+}
+
+
+async function ensureAssignees(){
+  if(assigneesLoaded) return;
+  try{
+    const res = await fetch('/api/assignees');
+    if(res.ok){
+      const arr = await res.json();
+      assignees = (arr || [])
+        .filter(x => x && String(x).trim().length > 0)
+        .map(x => ({
+          displayName: String(x).trim(),
+          uniqueName: String(x).trim()
+        }));
+    }
+  }catch(_){ /* ignore */ }
+
+  assignees.sort((a,b) => {
+    const aa = (a.displayName || a.uniqueName || '');
+    const bb = (b.displayName || b.uniqueName || '');
+    return aa.localeCompare(bb, 'tr');
+  });
+
+  assigneesLoaded = true;
 }
 async function ensureConfig(){
   if(azdoCfg) return azdoCfg;
@@ -1211,7 +1240,7 @@ function openAssigneeSelect(btn, item){
   optUn.textContent = 'Unassigned';
   sel.appendChild(optUn);
 
-  const users = (azdoUsers || [])
+  const users = ((assignees && assignees.length > 0) ? assignees : (azdoUsers || []))
     .map(u => ({
       displayName: String(u?.displayName || '').trim(),
       uniqueName: String(u?.uniqueName || '').trim()
