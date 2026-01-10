@@ -198,6 +198,38 @@ static string BuildAreaClause(AzdoOptions o)
         ? ""
         : $"    AND [System.AreaPath] UNDER '{EscapeWiql(area)}'\n";
 }
+
+static int? GetIntField(AzdoWorkItem wi, string field)
+{
+    var d = wi.GetDouble(field);
+    if (d.HasValue) return (int)d.Value;
+
+    if (!wi.Fields.TryGetValue(field, out var v) || v is null) return null;
+    return int.TryParse(v.ToString(), out var i) ? i : null;
+}
+
+static (string? DisplayName, string? UniqueName) GetIdentity(AzdoWorkItem wi, string field)
+{
+    if (!wi.Fields.TryGetValue(field, out var v) || v is null) return (null, null);
+
+    // Identity is usually an object: { displayName, uniqueName, ... }
+    if (v is JsonElement je && je.ValueKind == JsonValueKind.Object)
+    {
+        string? dn = null;
+        string? un = null;
+
+        if (je.TryGetProperty("displayName", out var pDn) && pDn.ValueKind == JsonValueKind.String)
+            dn = pDn.GetString();
+        if (je.TryGetProperty("uniqueName", out var pUn) && pUn.ValueKind == JsonValueKind.String)
+            un = pUn.GetString();
+
+        return (dn, un);
+    }
+
+    // Fallback: string-ish
+    var s = v.ToString();
+    return (s, s);
+}
 app.MapGet("/api/assignments/items", async (AzdoClient az, int? top, CancellationToken ct) =>
 {
     try
@@ -380,6 +412,8 @@ app.MapPatch("/api/assignments/{id:int}/type", async (int id, AzdoClient az, Met
         var wi = wis.FirstOrDefault();
         if (wi == null) return Results.NotFound();
 
+        var (assDn, assUn) = GetIdentity(wi, "System.AssignedTo");
+
         var item = new AssignableItemDto
         {
             OrderIndex = 0,
@@ -388,10 +422,10 @@ app.MapPatch("/api/assignments/{id:int}/type", async (int id, AzdoClient az, Met
             DescriptionHtml = await az.GetWorkItemDescriptionHtmlAsync(id, type, ct),
             WorkItemType = type,
             State = wi.GetString("System.State"),
-            Priority = wi.GetInt("Microsoft.VSTS.Common.Priority"),
+            Priority = GetIntField(wi, "Microsoft.VSTS.Common.Priority"),
             Relevance = null,
-            AssignedToDisplayName = wi.GetIdentityDisplayName("System.AssignedTo"),
-            AssignedToUniqueName = wi.GetIdentityUniqueName("System.AssignedTo"),
+            AssignedToDisplayName = assDn,
+            AssignedToUniqueName = assUn,
             CreatedDate = wi.GetDate("System.CreatedDate") ?? DateTimeOffset.MinValue,
             ChangedDate = wi.GetDate("System.ChangedDate") ?? DateTimeOffset.MinValue,
         };
@@ -1501,7 +1535,7 @@ app.Run();
 
 // -------------------- DTOs --------------------
 public record AssigneePatchDto(string? AssigneeUniqueName);
-public record WorkItemTypePatchDto(string? Type);
+public record WorkItemTypePatchDto(string? WorkItemType);
 public record FeedbackCreate(string? Note);
 public record CommentCreate(string? Text);
 public record ResolveDto(bool IsResolved);
