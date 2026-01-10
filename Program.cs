@@ -235,7 +235,7 @@ ORDER BY [System.ChangedDate] DESC";
         var fetched = new List<AzdoWorkItem>();
         foreach (var chunk in ids.Chunk(200))
         {
-            var batch = await az.GetWorkItemsBatchAsync(chunk, ct, extraFields: new[] { "System.Description" });
+            var batch = await az.GetWorkItemsBatchAsync(chunk, ct, extraFields: new[] { "System.Description", "System.AreaPath" });
             fetched.AddRange(batch);
         }
 
@@ -348,7 +348,7 @@ app.MapPatch("/api/assignments/{id:int}/assignee", async (int id, AzdoClient az,
         var unique = (dto.AssigneeUniqueName ?? "").Trim();
         await az.UpdateWorkItemAssignedToAsync(id, string.IsNullOrWhiteSpace(unique) ? null : unique, ct);
 
-        var wis = await az.GetWorkItemsBatchAsync(new[] { id }, ct, extraFields: new[] { "System.Description" });
+        var wis = await az.GetWorkItemsBatchAsync(new[] { id }, ct, extraFields: new[] { "System.Description", "System.AreaPath" });
         var wi = wis.FirstOrDefault() ?? throw new Exception("Work item not found");
         var revs = await az.ListRevisionsAsync(id, ct);
         await UpsertFromAzureAsync(db, metrics, az.Options, wi, revs);
@@ -409,7 +409,7 @@ app.MapPatch("/api/assignments/{id:int}/move", async (int id, AppDbContext db, A
         await az.UpdateWorkItemMoveAsync(id, pr, makeApproved, newRank, ct);
 
         // Refresh local cache
-        var wis = await az.GetWorkItemsBatchAsync(new[] { id }, ct, extraFields: new[] { "System.Description" });
+        var wis = await az.GetWorkItemsBatchAsync(new[] { id }, ct, extraFields: new[] { "System.Description", "System.AreaPath" });
         var wi = wis.FirstOrDefault() ?? throw new Exception("Work item not found");
         var revs = await az.ListRevisionsAsync(id, ct);
         await UpsertFromAzureAsync(db, metrics, az.Options, wi, revs);
@@ -1182,7 +1182,7 @@ ORDER BY [System.ChangedDate] DESC";
     var fetched = new List<AzdoWorkItem>();
     foreach (var chunk in ids.Chunk(200))
     {
-        var batch = await az.GetWorkItemsBatchAsync(chunk, ct, extraFields: new[] { "System.Description" });
+        var batch = await az.GetWorkItemsBatchAsync(chunk, ct, extraFields: new[] { "System.Description", "System.AreaPath" });
         fetched.AddRange(batch);
     }
 
@@ -1225,6 +1225,7 @@ static async Task UpsertFromAzureAsync(AppDbContext db, MetricsService metrics, 
     entity.AssignedToUniqueName = ident?.UniqueName;
 
     entity.IterationPath = wi.GetString("System.IterationPath") ?? entity.IterationPath;
+    entity.AreaPath = wi.GetString("System.AreaPath") ?? entity.AreaPath;
     entity.Tags = wi.GetString("System.Tags") ?? "";
 
     entity.ChangedDate = wi.GetDate("System.ChangedDate") ?? entity.ChangedDate;
@@ -1264,15 +1265,24 @@ static async Task UpsertFromAzureAsync(AppDbContext db, MetricsService metrics, 
     metrics.ApplyMetrics(entity, opt, revEntities);
     metrics.ApplyPoolRules(entity, opt);
 }
-app.MapGet("/api/workitems/{id:int}", async (AppDbContext db, AzdoClient az, int id, CancellationToken ct) =>
+app.MapGet("/api/workitems/{id:int}", async (AppDbContext db, AzdoClient az, IOptions<AzdoOptions> opt, int id, CancellationToken ct) =>
 {
     var wi = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
     if (wi is null) return Results.NotFound();
 
-    if (!string.Equals(wi.State, "In Progress", StringComparison.OrdinalIgnoreCase))
+    // UI kısıtı: "In Progress" varyantlarını kabul et
+    var o = opt.Value;
+    var inProgStates = new HashSet<string>(
+        (o.StartStates ?? Array.Empty<string>())
+            .Concat(new[] { "In Progress", "Active", "Doing", "Started", "Devam Ediyor", "Yapılıyor", "Yapiliyor", "İşleniyor", "Isleniyor" })
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim()),
+        StringComparer.OrdinalIgnoreCase);
+
+    if (wi.State is null || !inProgStates.Contains(wi.State))
         return Results.NotFound();
 
-    var feedbackRaw = await db.Feedback.AsNoTracking()
+var feedbackRaw = await db.Feedback.AsNoTracking()
         .Where(f => f.WorkItemId == id)
         .Take(500)
         .ToListAsync(ct);
@@ -1356,10 +1366,18 @@ app.MapPost("/api/workitems/{id:int}/comment", async (AzdoClient az, AppDbContex
     // UI kısıtı: sadece In Progress olanları yorumlayalım
     var wi = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id, ct);
     if (wi is null) return Results.NotFound();
-    if (!string.Equals(wi.State, "In Progress", StringComparison.OrdinalIgnoreCase))
+    var o = az.Options;
+    var inProgStates = new HashSet<string>(
+        (o.StartStates ?? Array.Empty<string>())
+            .Concat(new[] { "In Progress", "Active", "Doing", "Started", "Devam Ediyor", "Yapılıyor", "Yapiliyor", "İşleniyor", "Isleniyor" })
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim()),
+        StringComparer.OrdinalIgnoreCase);
+
+    if (wi.State is null || !inProgStates.Contains(wi.State))
         return Results.NotFound();
 
-    var raw = (dto.Text ?? "").Trim();
+var raw = (dto.Text ?? "").Trim();
     if (string.IsNullOrWhiteSpace(raw))
         return Results.BadRequest(new { message = "Yorum boş olamaz." });
 
