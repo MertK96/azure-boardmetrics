@@ -392,8 +392,8 @@ app.MapPatch("/api/assignments/{id:int}/type", async (int id, AzdoClient az, Met
             Relevance = null,
             AssignedToDisplayName = wi.GetIdentityDisplayName("System.AssignedTo"),
             AssignedToUniqueName = wi.GetIdentityUniqueName("System.AssignedTo"),
-            CreatedDate = wi.GetDate("System.CreatedDate"),
-            ChangedDate = wi.GetDate("System.ChangedDate"),
+            CreatedDate = wi.GetDate("System.CreatedDate") ?? DateTimeOffset.MinValue,
+            ChangedDate = wi.GetDate("System.ChangedDate") ?? DateTimeOffset.MinValue,
         };
 
         return Results.Json(item);
@@ -1501,6 +1501,7 @@ app.Run();
 
 // -------------------- DTOs --------------------
 public record AssigneePatchDto(string? AssigneeUniqueName);
+public record WorkItemTypePatchDto(string? Type);
 public record FeedbackCreate(string? Note);
 public record CommentCreate(string? Text);
 public record ResolveDto(bool IsResolved);

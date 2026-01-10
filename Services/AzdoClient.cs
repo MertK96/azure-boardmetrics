@@ -419,9 +419,9 @@ public async Task UpdateWorkItemTypeAsync(int id, string workItemType, Cancellat
     if (type != "Bug" && type != "Product Backlog Item")
         throw new Exception("WorkItemType sadece 'Bug' veya 'Product Backlog Item' olabilir.");
 
-    var orgUrl = (_opt.OrgUrl ?? "").Trim().TrimEnd('/');
+    var orgUrl = (_opt.OrganizationUrl ?? "").Trim().TrimEnd('/');
     if (string.IsNullOrWhiteSpace(orgUrl))
-        throw new Exception("OrgUrl boş. AZDO_ORG_URL/appsettings üzerinden org url gerekli.");
+        throw new Exception("OrganizationUrl boş. AZDO_ORG_URL/appsettings üzerinden org url gerekli.");
 
     var project = (_opt.Project ?? "").Trim();
     if (string.IsNullOrWhiteSpace(project))
