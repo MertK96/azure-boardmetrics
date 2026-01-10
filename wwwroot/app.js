@@ -1173,7 +1173,7 @@ function createAssignCard(item){
   div.innerHTML = `
     <div class="aTop">
       <a class="aId" href="${buildBoardUrl(item.id)}" target="_blank" rel="noreferrer">#${item.id}</a>
-      <div class="aType">${escapeHtml(typeLabel)}</div>
+      ${renderTypePicker(item, typeLabel)}
     </div>
 
     <div class="aTitle">${escapeHtml(title)}</div>
@@ -1192,6 +1192,27 @@ function createAssignCard(item){
 
     <div class="aTags">${renderTagChips(tags)}</div>
   `;
+
+  // wire type picker
+  const typeSel = div.querySelector('.aTypeSel');
+  if(typeSel){
+    typeSel.addEventListener('change', async (e)=>{
+      const val = e.target.value;
+      try{
+        const updated = await updateAssignmentType(item.id, val);
+        // update local item fields
+        item.workItemType = updated.workItemType || val;
+        if(updated.title) item.title = updated.title;
+        if(updated.state) item.state = updated.state;
+        if(updated.descriptionHtml !== undefined) item.descriptionHtml = updated.descriptionHtml;
+        renderAssignable();
+      }catch(err){
+        alert('Tip güncellenemedi: ' + (err?.message || err));
+        // revert UI
+        e.target.value = item.workItemType || val;
+      }
+    });
+  }
 
   
   // Inline assignee edit (bind after innerHTML)
@@ -1214,6 +1235,35 @@ function renderAssigneePicker(item){
   const label = dn ? dn : 'Unassigned';
   const muted = dn ? '' : ' muted';
   return `<button type="button" class="aAssigneePicker${muted}" data-wi="${item.id}" title="Atamayı değiştir">${escapeHtml(label)} <span class="caret">▾</span></button>`;
+}
+
+function renderTypePicker(item, typeLabel){
+  const t = String(item?.workItemType || '').trim();
+  // Only allow toggling between Bug and Product Backlog Item
+  if(t !== 'Bug' && t !== 'Product Backlog Item'){
+    return `<div class="aType">${escapeHtml(typeLabel)}</div>`;
+  }
+  const bugSel = (t === 'Bug') ? 'selected' : '';
+  const pbiSel = (t === 'Product Backlog Item') ? 'selected' : '';
+  return `
+    <select class="aTypeSel" data-wi="${item.id}">
+      <option value="Bug" ${bugSel}>Bug</option>
+      <option value="Product Backlog Item" ${pbiSel}>PBI</option>
+    </select>
+  `;
+}
+
+async function updateAssignmentType(id, workItemType){
+  const res = await fetch(`/api/assignments/${id}/type`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workItemType: workItemType || '' })
+  });
+  if(!res.ok){
+    const t = await res.text();
+    throw new Error(t || (`HTTP ${res.status}`));
+  }
+  return await res.json();
 }
 
 async function patchAssignee(workItemId, assigneeUniqueName){

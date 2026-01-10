@@ -365,6 +365,47 @@ app.MapPatch("/api/assignments/{id:int}/assignee", async (int id, AzdoClient az,
 });
 
 
+
+app.MapPatch("/api/assignments/{id:int}/type", async (int id, AzdoClient az, MetricsService metrics, WorkItemTypePatchDto dto, CancellationToken ct) =>
+{
+    try
+    {
+        var type = (dto.WorkItemType ?? "").Trim();
+        if (type != "Bug" && type != "Product Backlog Item")
+            return Results.BadRequest(new { message = "WorkItemType sadece 'Bug' veya 'Product Backlog Item' olabilir." });
+
+        await az.UpdateWorkItemTypeAsync(id, type, ct);
+
+        var wis = await az.GetWorkItemsBatchAsync(new[] { id }, ct, extraFields: new[] { "System.Description", "System.AreaPath" });
+        var wi = wis.FirstOrDefault();
+        if (wi == null) return Results.NotFound();
+
+        var item = new AssignableItemDto
+        {
+            OrderIndex = 0,
+            Id = wi.Id,
+            Title = wi.GetString("System.Title"),
+            DescriptionHtml = await az.GetWorkItemDescriptionHtmlAsync(id, type, ct),
+            WorkItemType = type,
+            State = wi.GetString("System.State"),
+            Priority = wi.GetInt("Microsoft.VSTS.Common.Priority"),
+            Relevance = null,
+            AssignedToDisplayName = wi.GetIdentityDisplayName("System.AssignedTo"),
+            AssignedToUniqueName = wi.GetIdentityUniqueName("System.AssignedTo"),
+            CreatedDate = wi.GetDate("System.CreatedDate"),
+            ChangedDate = wi.GetDate("System.ChangedDate"),
+        };
+
+        return Results.Json(item);
+    }
+    catch (Exception ex)
+    {
+        var msg = ex.Message;
+        if (msg.Length > 1500) msg = msg[..1500];
+        return Results.Problem(detail: msg, statusCode: 502);
+    }
+});
+
 app.MapPatch("/api/assignments/{id:int}/move", async (int id, AppDbContext db, AzdoClient az, MetricsService metrics, AzdoBoardMetrics.Models.MoveAssignmentDto dto, CancellationToken ct) =>
 {
     try

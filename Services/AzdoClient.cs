@@ -413,6 +413,38 @@ public async Task UpdateWorkItemAssignedToAsync(int id, string? assigneeUniqueNa
 }
 
 
+public async Task UpdateWorkItemTypeAsync(int id, string workItemType, CancellationToken ct)
+{
+    var type = (workItemType ?? "").Trim();
+    if (type != "Bug" && type != "Product Backlog Item")
+        throw new Exception("WorkItemType sadece 'Bug' veya 'Product Backlog Item' olabilir.");
+
+    var orgUrl = (_opt.OrgUrl ?? "").Trim().TrimEnd('/');
+    if (string.IsNullOrWhiteSpace(orgUrl))
+        throw new Exception("OrgUrl boş. AZDO_ORG_URL/appsettings üzerinden org url gerekli.");
+
+    var project = (_opt.Project ?? "").Trim();
+    if (string.IsNullOrWhiteSpace(project))
+        throw new Exception("Project boş. AZDO_PROJECT/appsettings üzerinden proje adı gerekli.");
+
+    var ops = new object[]
+    {
+        new { op = "add", path = "/fields/System.WorkItemType", value = type }
+    };
+
+    var path = $"{orgUrl}/{project}/_apis/wit/workitems/{id}?api-version=7.1";
+    using var req = new HttpRequestMessage(new HttpMethod("PATCH"), path);
+    req.Content = new StringContent(JsonSerializer.Serialize(ops), Encoding.UTF8, "application/json-patch+json");
+
+    using var res = await _http.SendAsync(req, ct);
+    if (!res.IsSuccessStatusCode)
+    {
+        var body = await res.Content.ReadAsStringAsync(ct);
+        throw new Exception($"UpdateWorkItemType failed: {(int)res.StatusCode} {res.ReasonPhrase} :: {body}");
+    }
+}
+
+
 
 public async Task UpdateWorkItemDescriptionAsync(int id, string descriptionHtml, CancellationToken ct)
 {
