@@ -153,16 +153,13 @@
               <button id="assign_tags_btn" type="button" class="ddBtn">Tags</button>
               <div id="assign_tags_menu" class="ddMenu hidden">
                 <div class="ddHead">
-                  <input id="assign_tags_search" class="ddSearch" placeholder="Search tags" />
-                </div>
-                <div class="ddMode">
-                  <label class="ddRadio"><input type="radio" name="assign_tag_mode" value="or" checked> Or</label>
-                  <label class="ddRadio"><input type="radio" name="assign_tag_mode" value="and"> And</label>
+                  <div class="ddMode">
+                    <span class="muted">Mode:</span>
+                    <label class="ddRadio"><input type="radio" name="assign_tag_mode" value="or" checked> OR</label>
+                    <label class="ddRadio"><input type="radio" name="assign_tag_mode" value="and"> AND</label>
+                  </div>
                 </div>
                 <div id="assign_tags_list" class="tagsBox"></div>
-                <div class="ddFoot">
-                  <button id="assign_tags_clear" type="button" class="ddClear">Clear</button>
-                </div>
               </div>
             </div>
 
@@ -349,13 +346,14 @@
     </div>
 
 <!-- -------------------- DETAIL (GLOBAL) -------------------- -->
+    <div id="detail_backdrop" class="modalBackdrop hidden" aria-hidden="true"></div>
     <section id="detail" class="detail hidden">
         <div class="detailHeader">
           <div>
             <div id="d_title" class="dTitle"></div>
             <div id="d_meta" class="dMeta"></div>
           </div>
-          <button id="close" type="button">Kapat</button>
+          <button id="close" type="button" class="modalClose" aria-label="Kapat">✕</button>
         </div>
 
         <div class="cards">

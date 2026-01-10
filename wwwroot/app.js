@@ -13,7 +13,6 @@ let assignAutoTimer = null;
 let assignItems = [];
 let assignLoaded = false;
 let assignColumnSort = { 0: 'default', 1: 'default', 2: 'default', 3: 'default', 4: 'default' };
-let assignAllTags = [];
 
 let perfLoaded = false;
 let perfInitDone = false;
@@ -47,6 +46,22 @@ function ymdLocal(d){
 
 function todayKey(){
   return ymdLocal(new Date());
+}
+
+function showDetailModal(){
+  const b = $('detail_backdrop');
+  const d = $('detail');
+  if(b) b.classList.remove('hidden');
+  if(d) d.classList.remove('hidden');
+  document.body.classList.add('modalOpen');
+}
+
+function hideDetailModal(){
+  const b = $('detail_backdrop');
+  const d = $('detail');
+  if(d) d.classList.add('hidden');
+  if(b) b.classList.add('hidden');
+  document.body.classList.remove('modalOpen');
 }
 
 
@@ -621,7 +636,7 @@ async function openDetail(id){
 
   await ensureConfig();
 
-  $('detail').classList.remove('hidden');
+  showDetailModal();
 
   // default tab
   setActiveTab('note');
@@ -1171,35 +1186,6 @@ function updateTagButton(){
   btn.textContent = cnt > 0 ? `Tags (${cnt})` : 'Tags';
 }
 
-function renderAssignTagsList(){
-  const box = $('assign_tags_list');
-  if(!box) return;
-
-  const search = String($('assign_tags_search')?.value || '').trim().toLowerCase();
-  const selected = new Set(getSelectedTags());
-  const tags = (assignAllTags || []).filter(t => {
-    if(!search) return true;
-    return String(t).toLowerCase().includes(search);
-  });
-
-  box.innerHTML = '';
-  for(const tag of tags){
-    const wrap = document.createElement('label');
-    wrap.className = 'tagItem';
-    wrap.innerHTML = `<input type="checkbox" value="${escapeHtml(tag)}"> <span>${escapeHtml(tag)}</span>`;
-    const input = wrap.querySelector('input');
-    if(input && selected.has(tag)) input.checked = true;
-    box.appendChild(wrap);
-  }
-
-  // change handler
-  box.querySelectorAll('input[type="checkbox"]').forEach(ch => {
-    ch.addEventListener('change', renderAssignable);
-  });
-
-  updateTagButton();
-}
-
 function itemHasTag(item, tag){
   const tags = item.tags || item.Tags || [];
   if(!tags || !Array.isArray(tags)) return false;
@@ -1728,6 +1714,7 @@ function fillAssignFilters(items){
   // Tags
   const box = $('assign_tags_list');
   if(box){
+    const selected = new Set(getSelectedTags());
     const tags = new Set();
     for(const it of (items || [])){
       const t = it.tags || [];
@@ -1738,8 +1725,24 @@ function fillAssignFilters(items){
         }
       }
     }
-    assignAllTags = Array.from(tags.values()).sort((a,b) => a.localeCompare(b,'tr'));
-    renderAssignTagsList();
+    const tagArr = Array.from(tags.values()).sort((a,b) => a.localeCompare(b,'tr'));
+    box.innerHTML = '';
+    for(const tag of tagArr){
+      const id = `tag_${tag.replaceAll(/[^a-zA-Z0-9_-]/g,'_')}`;
+      const wrap = document.createElement('label');
+      wrap.className = 'tagItem';
+      wrap.innerHTML = `<input type="checkbox" value="${escapeHtml(tag)}"> <span>${escapeHtml(tag)}</span>`;
+      const input = wrap.querySelector('input');
+      if(input && selected.has(tag)) input.checked = true;
+      box.appendChild(wrap);
+    }
+
+    // change handler
+    box.querySelectorAll('input[type="checkbox"]').forEach(ch => {
+      ch.addEventListener('change', renderAssignable);
+    });
+
+    updateTagButton();
   }
 }
 
@@ -1793,7 +1796,14 @@ if(boardAssSel) boardAssSel.addEventListener('change', () => {
   // No need to refetch; filter is client-side
   load();
 });
-$('close').addEventListener('click', () => $('detail').classList.add('hidden'));
+$('close').addEventListener('click', hideDetailModal);
+
+// close modal: click backdrop / ESC
+const detailBackdrop = $('detail_backdrop');
+if(detailBackdrop) detailBackdrop.addEventListener('click', hideDetailModal);
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape') hideDetailModal();
+});
 $('sendFb').addEventListener('click', sendFeedback);
 
 // view tabs
@@ -1870,27 +1880,6 @@ document.addEventListener('click', () => {
   if(tagMenu && !tagMenu.classList.contains('hidden')) tagMenu.classList.add('hidden');
 });
 
-// Tag search & clear (Azure-like)
-const tagSearch = $('assign_tags_search');
-if(tagSearch){
-  tagSearch.addEventListener('input', () => renderAssignTagsList());
-}
-const tagClear = $('assign_tags_clear');
-if(tagClear){
-  tagClear.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    // uncheck everything
-    const box = $('assign_tags_list');
-    if(box){
-      box.querySelectorAll('input[type="checkbox"]').forEach(ch => ch.checked = false);
-    }
-    if(tagSearch) tagSearch.value = '';
-    renderAssignable();
-    renderAssignTagsList();
-  });
-}
-
 document.querySelectorAll('input[name="assign_tag_mode"]').forEach(r => {
   r.addEventListener('change', renderAssignable);
 });
@@ -1918,7 +1907,6 @@ if(kanban){
 
 function monthNameTr(m){
   const names = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
-  if(Number(m) === 0) return 'Tümü';
   return names[(m-1) % 12] || String(m);
 }
 
@@ -2191,41 +2179,21 @@ function getPerfPeriod(){
   return { year, month, week };
 }
 
-function getPerfRanges(){
+function getPerfRange(){
   const { year, month, week } = getPerfPeriod();
+  // month=0 => full year
+  if(month <= 0){
+    const start = new Date(year, 0, 1);
+    const endExclusive = new Date(year + 1, 0, 1);
+    return { start, endExclusive };
+  }
+
+  const daysInMonth = new Date(year, month, 0).getDate();
   const w = String(week || 'all').trim().toLowerCase();
   const isAll = (w === '' || w === 'all' || w === 'hepsi');
 
-  // month=0 => whole year. If week is selected, interpret as "same week-of-month" across all months.
-  if(month <= 0){
-    if(isAll){
-      const start = new Date(year, 0, 1);
-      const endExclusive = new Date(year + 1, 0, 1);
-      return [{ start, endExclusive }];
-    }
-    let wn = parseInt(w, 10);
-    if(!Number.isFinite(wn)) wn = 1;
-    if(wn < 1) wn = 1;
-    if(wn > 5) wn = 5;
-
-    const ranges = [];
-    for(let m = 1; m <= 12; m++){
-      const dim = new Date(year, m, 0).getDate();
-      let startDay = 1 + (wn - 1) * 7;
-      if(startDay > dim) startDay = Math.max(1, dim - 6);
-      const endDay = Math.min(startDay + 6, dim);
-      const start = new Date(year, m - 1, startDay);
-      const endExclusive = new Date(year, m - 1, endDay + 1);
-      ranges.push({ start, endExclusive });
-    }
-    return ranges;
-  }
-
-  // month > 0
-  const daysInMonth = new Date(year, month, 0).getDate();
   let startDay = 1;
   let endDay = daysInMonth;
-
   if(!isAll){
     let wn = parseInt(w, 10);
     if(!Number.isFinite(wn)) wn = 1;
@@ -2236,26 +2204,23 @@ function getPerfRanges(){
     endDay = Math.min(startDay + 6, daysInMonth);
   }
 
+  // JS month is 0-based
   const start = new Date(year, month - 1, startDay);
   const endExclusive = new Date(year, month - 1, endDay + 1);
-  return [{ start, endExclusive }];
+  return { start, endExclusive };
 }
 
 
 function buildPerfDailyStacks(items){
+  const { start, endExclusive } = getPerfRange();
   const byDate = new Map();
 
-  // Ensure the x-axis covers the whole selected period, even if some days have 0.
-  // For month=0 + week!=all, the period is a set of disjoint ranges (same week-of-month across months).
-  const ranges = getPerfRanges();
-  for(const r of ranges){
-    const cur = new Date(r.start.getTime());
-    while(cur < r.endExclusive){
-      const key = cur.toLocaleDateString('sv-SE');
-      if(!byDate.has(key))
-        byDate.set(key, { date: key, bugEff: 0, backlogEff: 0, bugItems: [], backlogItems: [] });
-      cur.setDate(cur.getDate() + 1);
-    }
+  // Ensure the x-axis covers the whole selected period (week/month), even if some days have 0.
+  const cur = new Date(start.getTime());
+  while(cur < endExclusive){
+    const key = cur.toLocaleDateString('sv-SE');
+    byDate.set(key, { date: key, bugEff: 0, backlogEff: 0, bugItems: [], backlogItems: [] });
+    cur.setDate(cur.getDate() + 1);
   }
 
   for(const it of (items || [])){
@@ -2347,11 +2312,7 @@ async function loadPerfDone(){
   if(title){
     const userObj = (azdoUsers || []).find(x => (x.uniqueName || x.displayName || '').trim() === perfActiveUser);
     const uName = userObj ? perfUserLabel(userObj) : perfActiveUser;
-    const wk = String(week || 'all').trim().toLowerCase();
-    const isAll = (wk === '' || wk === 'all' || wk === 'hepsi');
-    let wTxt;
-    if(month <= 0) wTxt = isAll ? 'Yıllık' : `Her ay Hafta ${week}`;
-    else wTxt = isAll ? 'Aylık' : `Hafta ${week}`;
+    const wTxt = (String(week) === 'all') ? 'Aylık' : `Hafta ${week}`;
     title.textContent = `${uName} • ${year} / ${monthNameTr(month)} • ${wTxt}`;
   }
 

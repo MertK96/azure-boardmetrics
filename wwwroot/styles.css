@@ -1,4 +1,5 @@
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#0b0f14;color:#e6edf3;}
+body.modalOpen{overflow:hidden}
 header{padding:18px 22px;border-bottom:1px solid #223044;background:#0b1220;position:sticky;top:0}
 .title{font-size:18px;font-weight:700}
 .sub{font-size:12px;color:#97a6b3;margin-top:4px}
@@ -37,7 +38,14 @@ tr.late:hover{background:#2a2116}
 tr.early{background:#12221a}
 tr.early:hover{background:#162a21}
 
-.detail{margin-top:14px;border:1px solid #223044;border-radius:14px;background:#0b1220;padding:14px}
+.modalBackdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:998}
+
+/* Detail panel is shown as a modal (Azure-like) */
+.detail{position:fixed;inset:5vh 6vw;border:1px solid #223044;border-radius:14px;background:#0b1220;padding:14px;z-index:999;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+
+@media (max-width: 900px){
+  .detail{inset:3vh 3vw}
+}
 .hidden{display:none}
 .detailHeader{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
 .dTitle{font-weight:700}
@@ -129,19 +137,13 @@ td.cellForecastOver{background:#2a2116}
 .ddBtn:hover{filter:brightness(1.05)}
 .ddMenu{position:absolute;right:0;top:42px;z-index:50;width:420px;max-width:90vw;border:1px solid #223044;border-radius:14px;background:#0b1220;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:10px}
 .ddMenu.hidden{display:none}
-.ddHead{display:flex;align-items:center;margin-bottom:8px}
-.ddSearch{flex:1;background:#0f1726;color:#c9d1d9;border:1px solid #223044;border-radius:12px;padding:8px 10px;font-size:13px;outline:none}
-.ddSearch::placeholder{color:#97a6b3}
-.ddClear{background:#0f1726;color:#97a6b3;border:1px solid #223044;border-radius:12px;padding:8px 10px;font-size:12px;cursor:pointer}
-.ddClear:hover{filter:brightness(1.05)}
-.ddMode{display:flex;gap:18px;align-items:center;font-size:12px;color:#97a6b3;margin-bottom:8px}
+.ddHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.ddMode{display:flex;gap:10px;align-items:center;font-size:12px;color:#97a6b3}
 .ddRadio{display:flex;gap:6px;align-items:center;color:#c9d1d9}
 .ddRadio input{width:16px;height:16px}
-.tagsBox{display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto;padding:10px 12px;border:1px solid #223044;border-radius:14px;background:#0f1726}
-.tagItem{display:flex;flex-direction:row;gap:8px;align-items:center;font-size:12px;color:#c9d1d9;white-space:nowrap;line-height:18px;padding:2px 0}
+.tagsBox{display:flex;gap:10px;flex-wrap:wrap;max-width:720px;max-height:140px;overflow:auto;padding:10px 12px;border:1px solid #223044;border-radius:14px;background:#0f1726}
+.tagItem{display:flex;flex-direction:row;gap:8px;align-items:center;font-size:12px;color:#c9d1d9;white-space:nowrap}
 .tagItem input{min-width:auto;width:16px;height:16px;padding:0;border-radius:4px}
-
-.ddFoot{display:flex;justify-content:flex-end;margin-top:8px}
 
 .assignSection{margin-top:12px}
 .sectionTitle{font-weight:700;margin:12px 0 10px 0;color:#e6edf3}
