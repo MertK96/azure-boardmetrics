@@ -6,10 +6,6 @@ const $ = (id) => document.getElementById(id);
 let currentId = null;
 let currentDetailDescHtml = '';
 let azdoCfg = null;
-// cached lists for client-side filtering (same model as "Atanacak Maddeler")
-let boardItems = [];
-let reviewItems = [];
-
 
 let activeView = 'board'; // 'board' | 'review' | 'assign' | 'perf'
 let assignAutoTimer = null;
@@ -32,6 +28,9 @@ let azdoUsers = [];
 let assigneesLoaded = false;
 let assignees = [];
 
+
+let boardAllItems = [];
+let reviewAllItems = [];
 let activeTab = 'note'; // 'note' | 'comment'
 
 function pad2(n){ return String(n).padStart(2,'0'); }
@@ -497,9 +496,11 @@ async function load(){
   }
 
 
+  const assignee = ($('assignee')?.value || '').trim();
   const mode = $('mode').value;
 
   const params = new URLSearchParams();
+  // Assignee filtresi client-side (Atanacak Maddeler ile aynı mantık)
   if(mode === 'pool') params.set('flagged', 'pool');
   params.set('top', '400');
 
@@ -516,68 +517,62 @@ async function load(){
     return;
   }
 
-  boardItems = await res.json();
-  fillBoardAssigneeFilter(boardItems);
-  renderBoard();
-}
+  const data = await res.json();
 
-function fillBoardAssigneeFilter(items){
-  const sel = $('assignee');
-  if(!sel) return;
+  boardAllItems = Array.isArray(data) ? data : [];
 
-  const current = (sel.value || '').trim();
+  // Board assignee select: options are derived from the same source as "Atanacak Maddeler" (items list)
+  (function fillBoardAssigneeSelect(){
+    const sel = $('assignee');
+    if(!sel || sel.tagName.toLowerCase() !== 'select') return;
 
-  const map = new Map(); // uniqueName -> label
-  for(const it of (items || [])){
-    const u = (it.assignedToUniqueName || '').trim();
-    const label = parseAssigneeLabel(it);
-    if(u && label && !map.has(u)) map.set(u, label);
-  }
-  const arr = Array.from(map.entries()).map(([u,label]) => ({ u, label }));
-  arr.sort((a,b) => (a.label || '').localeCompare((b.label || ''), 'tr'));
+    const current = (sel.value || '').trim();
+    const map = new Map(); // uniqueName -> label
 
-  sel.innerHTML = '';
+    for(const it of boardAllItems){
+      const un = String(it.assignedToUniqueName ?? '').trim();
+      const dn = String(it.assignedToDisplayName ?? '').trim();
+      if(!un) continue;
+      const label = dn ? extractNameFromIdentityText(dn) : (un.includes('@') ? un.split('@')[0] : un);
+      if(label && !map.has(un)) map.set(un, label);
+    }
 
-  const optAll = document.createElement('option');
-  optAll.value = '';
-  optAll.textContent = 'Hepsi';
-  sel.appendChild(optAll);
+    const arr = Array.from(map.entries()).map(([u,label]) => ({ u, label }));
+    arr.sort((a,b) => (a.label || '').localeCompare((b.label || ''), 'tr'));
 
-  const optUn = document.createElement('option');
-  optUn.value = '__unassigned__';
-  optUn.textContent = 'Unassigned';
-  sel.appendChild(optUn);
+    sel.innerHTML = '';
+    const optAll = document.createElement('option');
+    optAll.value = '';
+    optAll.textContent = 'Hepsi';
+    sel.appendChild(optAll);
 
-  for(const x of arr){
-    const o = document.createElement('option');
-    o.value = x.u;
-    o.textContent = x.label;
-    sel.appendChild(o);
-  }
+    const optUn = document.createElement('option');
+    optUn.value = '__unassigned__';
+    optUn.textContent = 'Unassigned';
+    sel.appendChild(optUn);
 
-  // restore if possible
-  if(current) sel.value = current;
-}
+    for(const x of arr){
+      const o = document.createElement('option');
+      o.value = x.u;
+      o.textContent = x.label;
+      sel.appendChild(o);
+    }
 
-function renderBoard(){
-  const tbody = $('tbl')?.querySelector('tbody');
-  const statusEl = $('status');
-  if(!tbody) return;
+    // restore if possible
+    if(current && Array.from(sel.options).some(o => o.value === current)) sel.value = current;
+  })();
 
-  const sel = ($('assignee')?.value || '').trim();
-  const mode = $('mode')?.value || 'all';
-
-  const filtered = (boardItems || []).filter(wi => {
-    if(mode === 'pool' && !wi.needsFeedback) return false;
-    if(!sel) return true;
-    const u = (wi.assignedToUniqueName || '').trim();
-    if(sel === '__unassigned__') return !u;
-    return u.toLowerCase() === sel.toLowerCase();
+  const filteredData = boardAllItems.filter(wi => {
+    if(!assignee) return true;
+    const u = String(wi.assignedToUniqueName ?? '').trim();
+    if(assignee === '__unassigned__') return !u;
+    return u && u.toLowerCase() === assignee.toLowerCase();
   });
 
+  const tbody = $('tbl').querySelector('tbody');
   tbody.innerHTML = '';
 
-  for(const wi of filtered){
+  for(const wi of filteredData){
     const tr = document.createElement('tr');
 
     // Pool
@@ -617,7 +612,7 @@ function renderBoard(){
     tbody.appendChild(tr);
   }
 
-  if(statusEl) statusEl.textContent = `ok (${filtered.length})`;
+  $('status').textContent = `ok (${data.length})`;
 }
 
 async function openDetail(id){
@@ -928,7 +923,8 @@ function renderReviewRow(wi){
   return tr;
 }
 
-function fillReviewAssigneeFilter(items){
+
+function renderReviewAssigneeSelect(items){
   const sel = $('review_assignee');
   if(!sel) return;
 
@@ -936,24 +932,25 @@ function fillReviewAssigneeFilter(items){
 
   const map = new Map(); // uniqueName -> label
   for(const it of (items || [])){
-    const u = (it.assignedToUniqueName || '').trim();
-    const label = parseAssigneeLabel(it);
-    if(u && label && !map.has(u)) map.set(u, label);
+    const u = String(it.assignedToUniqueName || '').trim();
+    if(!u) continue;
+    const label = parseAssigneeLabel(it) || (u.includes('@') ? u.split('@')[0] : u);
+    if(label && !map.has(u)) map.set(u, label);
   }
+
   const arr = Array.from(map.entries()).map(([u,label]) => ({ u, label }));
   arr.sort((a,b) => (a.label || '').localeCompare((b.label || ''), 'tr'));
 
   sel.innerHTML = '';
+  const opAll = document.createElement('option');
+  opAll.value = '';
+  opAll.textContent = 'Hepsi';
+  sel.appendChild(opAll);
 
-  const optAll = document.createElement('option');
-  optAll.value = '';
-  optAll.textContent = 'Hepsi';
-  sel.appendChild(optAll);
-
-  const optUn = document.createElement('option');
-  optUn.value = '__unassigned__';
-  optUn.textContent = 'Unassigned';
-  sel.appendChild(optUn);
+  const opUn = document.createElement('option');
+  opUn.value = '__unassigned__';
+  opUn.textContent = 'Unassigned';
+  sel.appendChild(opUn);
 
   for(const x of arr){
     const o = document.createElement('option');
@@ -963,58 +960,60 @@ function fillReviewAssigneeFilter(items){
   }
 
   // restore if possible
-  if(current) sel.value = current;
+  if(current && Array.from(sel.options).some(o => o.value === current)){
+    sel.value = current;
+  }
 }
 
-function renderReview(){
+function renderReviewFromCache(){
   const status = $('review_status');
   const tbody = $('tbl_review')?.querySelector('tbody');
   if(!tbody) return;
 
-  const sel = ($('review_assignee')?.value || '').trim();
+  const assignee = ($('review_assignee')?.value || '').trim();
 
-  const filtered = (reviewItems || []).filter(wi => {
-    if(!sel) return true;
-    const u = (wi.assignedToUniqueName || '').trim();
-    if(sel === '__unassigned__') return !u;
-    return u.toLowerCase() === sel.toLowerCase();
+  const filtered = (reviewAllItems || []).filter(wi => {
+    if(!assignee) return true;
+    const u = String(wi.assignedToUniqueName || '').trim();
+    if(assignee === '__unassigned__') return !u;
+    return u && u.toLowerCase() === assignee.toLowerCase();
   });
 
   tbody.innerHTML = '';
   (filtered || []).forEach(wi => tbody.appendChild(renderReviewRow(wi)));
-
   if(status) status.textContent = `${(filtered || []).length} madde`;
 }
 
 async function loadReviewItems(){
   await ensureAzdoUsers();
-  await ensureAssignees();
 
   const status = $('review_status');
+  const tbody = $('tbl_review')?.querySelector('tbody');
+  if(!tbody) return;
+
   if(status) status.textContent = 'yükleniyor...';
 
+  let list = [];
   try{
-    const q = new URLSearchParams();
-    q.set('top', '500');
-    const res = await fetch('/api/code-review/items?' + q.toString());
+    const res = await fetch('/api/code-review/items?top=500');
     if(!res.ok){
       const err = await res.json().catch(() => null);
       if(status) status.textContent = err?.message || `hata: ${res.status}`;
-      reviewItems = [];
-      renderReview();
+      tbody.innerHTML = '';
       return;
     }
-    reviewItems = await res.json();
+    list = await res.json();
   }catch(ex){
     if(status) status.textContent = ex?.message || 'hata';
-    reviewItems = [];
-    renderReview();
+    tbody.innerHTML = '';
     return;
   }
 
-  fillReviewAssigneeFilter(reviewItems);
-  renderReview();
+  reviewAllItems = Array.isArray(list) ? list : [];
+  renderReviewAssigneeSelect(reviewAllItems);
+  renderReviewFromCache();
 }
+
 
 async function assignReviewOwner(id, reviewerUniqueName, reviewerDisplayName){
   const status = $('review_status');
@@ -1776,6 +1775,11 @@ async function loadAssignableItems(){
 }
 
 $('refresh').addEventListener('click', load);
+const boardAssSel = $('assignee');
+if(boardAssSel) boardAssSel.addEventListener('change', () => {
+  // No need to refetch; filter is client-side
+  load();
+});
 $('close').addEventListener('click', () => $('detail').classList.add('hidden'));
 $('sendFb').addEventListener('click', sendFeedback);
 
@@ -1789,16 +1793,8 @@ if(assignBtn) assignBtn.addEventListener('click', () => setView('assign'));
 
 const reviewRefreshBtn = $('review_refresh');
 if(reviewRefreshBtn) reviewRefreshBtn.addEventListener('click', loadReviewItems);
-
-// board filters (client-side)
-const boardAssigneeSel = $('assignee');
-if(boardAssigneeSel) boardAssigneeSel.addEventListener('change', renderBoard);
-const modeSel = $('mode');
-if(modeSel) modeSel.addEventListener('change', renderBoard);
-
-// review filters (client-side)
-const reviewAssigneeSel = $('review_assignee');
-if(reviewAssigneeSel) reviewAssigneeSel.addEventListener('change', renderReview);
+const reviewAssSel = $('review_assignee');
+if(reviewAssSel) reviewAssSel.addEventListener('change', renderReviewFromCache);
 
 // assign view
 const assignRefreshBtn = $('assign_refresh');
