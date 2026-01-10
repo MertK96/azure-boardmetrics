@@ -10,6 +10,28 @@ using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// --- Render ENV compatibility ---
+// Render üzerindeki ENV anahtarları AZDO_ORG_URL, AZDO_PROJECT... şeklindeyse,
+// bunları Options binder'ın beklediği "Azdo:OrganizationUrl" vb. isimlere map ediyoruz.
+// Not: CreateBuilder zaten ENV provider'ını ekler; burada sadece isim uyumsuzluğunu gideriyoruz.
+var azdoEnvMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+{
+    ["AZDO_ORG_URL"] = "Azdo:OrganizationUrl",
+    ["AZDO_PROJECT"] = "Azdo:Project",
+    ["AZDO_PAT"] = "Azdo:Pat",
+    ["AZDO_TEAM"] = "Azdo:Team",
+    ["AZDO_DEFAULT_AREA_PATH"] = "Azdo:DefaultAreaPath",
+    ["AZDO_DEFAULT_ITERATION_PATH"] = "Azdo:DefaultIterationPath",
+};
+
+foreach (var kv in azdoEnvMap)
+{
+    var v = Environment.GetEnvironmentVariable(kv.Key);
+    if (!string.IsNullOrWhiteSpace(v) && string.IsNullOrWhiteSpace(builder.Configuration[kv.Value]))
+        builder.Configuration[kv.Value] = v;
+}
+// --- /Render ENV compatibility ---
+
 builder.Services.Configure<AzdoOptions>(builder.Configuration.GetSection("Azdo"));
 builder.Services.AddHttpClient<AzdoClient>();
 
