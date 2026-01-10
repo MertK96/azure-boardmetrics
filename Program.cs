@@ -181,7 +181,7 @@ static string BuildAreaClause(AzdoOptions o)
     {
         var team = (o.Team ?? "").Trim();
         area = !string.IsNullOrWhiteSpace(team) && !string.IsNullOrWhiteSpace(project)
-            ? $"{project}\{team}"
+            ? $"{project}\\{team}"
             : project;
     }
 

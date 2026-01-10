@@ -113,7 +113,7 @@ private string GetEffectiveAreaPath()
 
     var team = (_opt.Team ?? "").Trim();
     if (!string.IsNullOrWhiteSpace(team) && !string.IsNullOrWhiteSpace(project))
-        return $"{project}\{team}";
+        return $"{project}\\{team}";
 
     return project;
 }
